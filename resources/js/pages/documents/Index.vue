@@ -53,7 +53,7 @@ const props = defineProps<{
 defineOptions({
     layout: {
         breadcrumbs: [
-            { title: 'Dashboard', href: dashboard() },
+            { title: 'Panel', href: dashboard() },
             { title: 'Ventas/Compras', href: index() },
         ],
     },

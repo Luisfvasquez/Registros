@@ -36,7 +36,7 @@ const isEditing = computed(() => props.document !== null);
 defineOptions({
     layout: {
         breadcrumbs: [
-            { title: 'Dashboard', href: dashboard() },
+            { title: 'Panel', href: dashboard() },
             { title: 'Ventas/Compras', href: index() },
             { title: 'Nuevo documento', href: '#' },
         ],

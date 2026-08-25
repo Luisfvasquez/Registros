@@ -37,7 +37,7 @@ const props = defineProps<{
 
 defineOptions({
     layout: {
-        breadcrumbs: [{ title: 'Dashboard', href: dashboard() }],
+        breadcrumbs: [{ title: 'Panel', href: dashboard() }],
     },
 });
 
@@ -70,7 +70,7 @@ function money(value: number) {
 </script>
 
 <template>
-    <Head title="Dashboard" />
+    <Head title="Panel" />
 
     <div class="flex h-full flex-1 flex-col gap-6 p-4">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
