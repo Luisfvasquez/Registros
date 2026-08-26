@@ -215,7 +215,81 @@ class DocumentControllerTest extends TestCase
 
         $response = $this->actingAs($user)->delete(route('documents.destroy', $budget));
 
-        $response->assertRedirect(route('documents.index'));
+        $response->assertRedirect(route('documents.sales.index'));
         $this->assertModelMissing($budget);
+    }
+
+    public function test_the_sales_view_only_lists_sale_documents()
+    {
+        $user = User::factory()->create();
+        $contact = Contact::factory()->create();
+        $sale = Document::create([
+            'number' => 'PRE-00001',
+            'operation_type' => 'venta',
+            'document_type' => 'presupuesto',
+            'status' => 'pendiente',
+            'contact_id' => $contact->id,
+            'issue_date' => now()->toDateString(),
+            'subtotal' => 100,
+            'tax_total' => 0,
+            'total' => 100,
+        ]);
+        $purchase = Document::create([
+            'number' => 'PRE-00002',
+            'operation_type' => 'compra',
+            'document_type' => 'presupuesto',
+            'status' => 'pendiente',
+            'contact_id' => $contact->id,
+            'issue_date' => now()->toDateString(),
+            'subtotal' => 100,
+            'tax_total' => 0,
+            'total' => 100,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('documents.sales.index'));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->where('lockedOperationType', 'venta')
+            ->has('documents.data', 1)
+            ->where('documents.data.0.id', $sale->id)
+        );
+    }
+
+    public function test_the_purchases_view_only_lists_purchase_documents()
+    {
+        $user = User::factory()->create();
+        $contact = Contact::factory()->create();
+        Document::create([
+            'number' => 'PRE-00001',
+            'operation_type' => 'venta',
+            'document_type' => 'presupuesto',
+            'status' => 'pendiente',
+            'contact_id' => $contact->id,
+            'issue_date' => now()->toDateString(),
+            'subtotal' => 100,
+            'tax_total' => 0,
+            'total' => 100,
+        ]);
+        $purchase = Document::create([
+            'number' => 'PRE-00002',
+            'operation_type' => 'compra',
+            'document_type' => 'presupuesto',
+            'status' => 'pendiente',
+            'contact_id' => $contact->id,
+            'issue_date' => now()->toDateString(),
+            'subtotal' => 100,
+            'tax_total' => 0,
+            'total' => 100,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('documents.purchases.index'));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->where('lockedOperationType', 'compra')
+            ->has('documents.data', 1)
+            ->where('documents.data.0.id', $purchase->id)
+        );
     }
 }

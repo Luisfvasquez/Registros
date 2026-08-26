@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, setLayoutProps } from '@inertiajs/vue3';
 import { ArrowRightLeft, Plus, Search } from '@lucide/vue';
 import { useDebounceFn } from '@vueuse/core';
-import { ref, watch } from 'vue';
+import { ref, watch, watchEffect } from 'vue';
 import DocumentController, {
     index,
     create,
@@ -31,6 +31,8 @@ import {
 } from '@/components/ui/table';
 import { formatDate } from '@/lib/utils';
 import { dashboard } from '@/routes';
+import { index as purchasesIndex } from '@/routes/documents/purchases';
+import { index as salesIndex } from '@/routes/documents/sales';
 import type {
     Document,
     DocumentStatus,
@@ -48,7 +50,29 @@ const props = defineProps<{
         from?: string;
         to?: string;
     };
+    lockedOperationType?: 'venta' | 'compra' | null;
 }>();
+
+const pageUrl =
+    props.lockedOperationType === 'venta'
+        ? salesIndex().url
+        : props.lockedOperationType === 'compra'
+          ? purchasesIndex().url
+          : index().url;
+
+const pageTitle =
+    props.lockedOperationType === 'venta'
+        ? 'Ventas'
+        : props.lockedOperationType === 'compra'
+          ? 'Compras'
+          : 'Ventas/Compras';
+
+const pageDescription =
+    props.lockedOperationType === 'venta'
+        ? 'Presupuestos y órdenes de venta'
+        : props.lockedOperationType === 'compra'
+          ? 'Presupuestos y órdenes de compra'
+          : 'Presupuestos y órdenes de venta y compra';
 
 defineOptions({
     layout: {
@@ -57,6 +81,15 @@ defineOptions({
             { title: 'Ventas/Compras', href: index() },
         ],
     },
+});
+
+watchEffect(() => {
+    setLayoutProps({
+        breadcrumbs: [
+            { title: 'Panel', href: dashboard() },
+            { title: pageTitle, href: pageUrl },
+        ],
+    });
 });
 
 const search = ref(props.filters.search ?? '');
@@ -68,7 +101,7 @@ const to = ref(props.filters.to ?? '');
 
 const runFilter = useDebounceFn(() => {
     router.get(
-        index().url,
+        pageUrl,
         {
             search: search.value || undefined,
             operation_type:
@@ -123,16 +156,21 @@ function convert(document: Document) {
 </script>
 
 <template>
-    <Head title="Ventas/Compras" />
+    <Head :title="pageTitle" />
 
     <div class="flex flex-col gap-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
-            <Heading
-                title="Ventas/Compras"
-                description="Presupuestos y órdenes de venta y compra"
-            />
+            <Heading :title="pageTitle" :description="pageDescription" />
             <Button as-child>
-                <Link :href="create()">
+                <Link
+                    :href="
+                        create.url(
+                            lockedOperationType
+                                ? { query: { operation_type: lockedOperationType } }
+                                : undefined,
+                        )
+                    "
+                >
                     <Plus class="size-4" />
                     Nuevo documento
                 </Link>
@@ -153,7 +191,7 @@ function convert(document: Document) {
                 />
             </div>
 
-            <Select v-model="operationType">
+            <Select v-if="!lockedOperationType" v-model="operationType">
                 <SelectTrigger class="w-full sm:w-40"
                     ><SelectValue placeholder="Operación"
                 /></SelectTrigger>
@@ -198,7 +236,9 @@ function convert(document: Document) {
                     <TableRow>
                         <TableHead>Número</TableHead>
                         <TableHead>Contacto</TableHead>
-                        <TableHead class="hidden md:table-cell"
+                        <TableHead
+                            v-if="!lockedOperationType"
+                            class="hidden md:table-cell"
                             >Operación</TableHead
                         >
                         <TableHead class="hidden md:table-cell">Tipo</TableHead>
@@ -211,7 +251,10 @@ function convert(document: Document) {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    <TableEmpty v-if="documents.data.length === 0" :colspan="8">
+                    <TableEmpty
+                        v-if="documents.data.length === 0"
+                        :colspan="lockedOperationType ? 7 : 8"
+                    >
                         No hay documentos todavía.
                     </TableEmpty>
                     <TableRow
@@ -229,9 +272,11 @@ function convert(document: Document) {
                         <TableCell class="max-w-32 truncate sm:max-w-none">{{
                             document.contact?.name
                         }}</TableCell>
-                        <TableCell class="hidden capitalize md:table-cell">{{
-                            document.operation_type
-                        }}</TableCell>
+                        <TableCell
+                            v-if="!lockedOperationType"
+                            class="hidden capitalize md:table-cell"
+                            >{{ document.operation_type }}</TableCell
+                        >
                         <TableCell class="hidden md:table-cell">{{
                             documentTypeLabels[document.document_type]
                         }}</TableCell>

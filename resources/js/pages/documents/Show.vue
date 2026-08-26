@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, setLayoutProps, useForm } from '@inertiajs/vue3';
 import {
     ArrowRightLeft,
     MessageCircle,
@@ -7,10 +7,9 @@ import {
     SquarePen,
     Trash2,
 } from '@lucide/vue';
-import { ref } from 'vue';
+import { ref, watchEffect } from 'vue';
 import DocumentController, {
     edit,
-    index,
 } from '@/actions/App/Http/Controllers/DocumentController';
 import PaymentController from '@/actions/App/Http/Controllers/PaymentController';
 import Heading from '@/components/Heading.vue';
@@ -40,6 +39,8 @@ import {
 import WhatsAppReceiptDialog from '@/components/WhatsAppReceiptDialog.vue';
 import { formatDate } from '@/lib/utils';
 import { dashboard } from '@/routes';
+import { index as purchasesIndex } from '@/routes/documents/purchases';
+import { index as salesIndex } from '@/routes/documents/sales';
 import type { Document, DocumentStatus, PaymentMethod } from '@/types';
 
 const props = defineProps<{
@@ -52,10 +53,26 @@ defineOptions({
     layout: {
         breadcrumbs: [
             { title: 'Panel', href: dashboard() },
-            { title: 'Ventas/Compras', href: index() },
+            { title: 'Ventas', href: salesIndex() },
             { title: 'Detalle', href: '#' },
         ],
     },
+});
+
+watchEffect(() => {
+    setLayoutProps({
+        breadcrumbs: [
+            { title: 'Panel', href: dashboard() },
+            {
+                title: props.document.operation_type === 'compra' ? 'Compras' : 'Ventas',
+                href:
+                    props.document.operation_type === 'compra'
+                        ? purchasesIndex()
+                        : salesIndex(),
+            },
+            { title: 'Detalle', href: '#' },
+        ],
+    });
 });
 
 const statusLabels: Record<DocumentStatus, string> = {

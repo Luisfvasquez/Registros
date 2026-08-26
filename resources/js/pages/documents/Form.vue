@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, setLayoutProps, useForm } from '@inertiajs/vue3';
 import { Plus, Trash2 } from '@lucide/vue';
-import { computed, ref } from 'vue';
-import DocumentController, {
-    index,
-} from '@/actions/App/Http/Controllers/DocumentController';
+import { computed, ref, watchEffect } from 'vue';
+import DocumentController from '@/actions/App/Http/Controllers/DocumentController';
 import ContactPicker from '@/components/ContactPicker.vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
@@ -24,6 +22,8 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { dashboard } from '@/routes';
+import { index as purchasesIndex } from '@/routes/documents/purchases';
+import { index as salesIndex } from '@/routes/documents/sales';
 import type { Contact, Document, PaymentMethod, Product } from '@/types';
 
 const props = defineProps<{
@@ -37,10 +37,26 @@ defineOptions({
     layout: {
         breadcrumbs: [
             { title: 'Panel', href: dashboard() },
-            { title: 'Ventas/Compras', href: index() },
+            { title: 'Ventas', href: salesIndex() },
             { title: 'Nuevo documento', href: '#' },
         ],
     },
+});
+
+watchEffect(() => {
+    const operationType =
+        props.document?.operation_type ?? props.defaults.operation_type ?? 'venta';
+
+    setLayoutProps({
+        breadcrumbs: [
+            { title: 'Panel', href: dashboard() },
+            {
+                title: operationType === 'compra' ? 'Compras' : 'Ventas',
+                href: operationType === 'compra' ? purchasesIndex() : salesIndex(),
+            },
+            { title: 'Nuevo documento', href: '#' },
+        ],
+    });
 });
 
 const selectedContact = ref<Contact | null>(props.document?.contact ?? null);
@@ -118,6 +134,10 @@ const form = useForm({
     notes: props.document?.notes ?? '',
     items: initialItems(),
 });
+
+const cancelUrl = computed(() =>
+    form.operation_type === 'compra' ? purchasesIndex().url : salesIndex().url,
+);
 
 function addItem() {
     form.items.push(emptyItem());
@@ -633,7 +653,7 @@ function submit() {
                     Guardar documento
                 </Button>
                 <Button as-child variant="ghost">
-                    <Link :href="index()">Cancelar</Link>
+                    <Link :href="cancelUrl">Cancelar</Link>
                 </Button>
             </div>
         </form>

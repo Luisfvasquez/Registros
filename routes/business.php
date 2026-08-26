@@ -24,6 +24,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
     Route::post('payment-methods', [PaymentMethodController::class, 'store'])->name('payment-methods.store');
 
+    Route::get('ventas', [DocumentController::class, 'sales'])->name('documents.sales.index');
+    Route::get('compras', [DocumentController::class, 'purchases'])->name('documents.purchases.index');
+
     Route::post('documents/{document}/convert', [DocumentController::class, 'convertToInvoice'])->name('documents.convert');
     Route::resource('documents', DocumentController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update', 'destroy']);
 

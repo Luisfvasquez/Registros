@@ -16,6 +16,21 @@ class DocumentController extends Controller
 {
     public function index(Request $request): Response
     {
+        return $this->listDocuments($request);
+    }
+
+    public function sales(Request $request): Response
+    {
+        return $this->listDocuments($request, 'venta');
+    }
+
+    public function purchases(Request $request): Response
+    {
+        return $this->listDocuments($request, 'compra');
+    }
+
+    private function listDocuments(Request $request, ?string $lockedOperationType = null): Response
+    {
         $documents = Document::query()
             ->with('contact:id,name')
             ->when($request->string('search')->toString(), function ($query, $search) {
@@ -24,7 +39,11 @@ class DocumentController extends Controller
                         ->orWhereHas('contact', fn ($query) => $query->where('name', 'like', "%{$search}%"));
                 });
             })
-            ->when($request->string('operation_type')->toString(), fn ($query, $value) => $query->where('operation_type', $value))
+            ->when(
+                $lockedOperationType,
+                fn ($query, $value) => $query->where('operation_type', $value),
+                fn ($query) => $query->when($request->string('operation_type')->toString(), fn ($query, $value) => $query->where('operation_type', $value)),
+            )
             ->when($request->string('document_type')->toString(), fn ($query, $value) => $query->where('document_type', $value))
             ->when($request->string('status')->toString(), fn ($query, $value) => $query->where('status', $value))
             ->when($request->date('from'), fn ($query, $value) => $query->whereDate('issue_date', '>=', $value))
@@ -37,6 +56,7 @@ class DocumentController extends Controller
         return Inertia::render('documents/Index', [
             'documents' => $documents,
             'filters' => $request->only(['search', 'operation_type', 'document_type', 'status', 'from', 'to']),
+            'lockedOperationType' => $lockedOperationType,
         ]);
     }
 
@@ -148,11 +168,13 @@ class DocumentController extends Controller
             abort(422, 'Las órdenes no se pueden eliminar.');
         }
 
+        $operationType = $document->operation_type;
+
         $document->delete();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Documento eliminado.')]);
 
-        return to_route('documents.index');
+        return to_route($operationType === 'compra' ? 'documents.purchases.index' : 'documents.sales.index');
     }
 
     /**

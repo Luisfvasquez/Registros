@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
-import { FileText, LayoutGrid, Package, Users } from '@lucide/vue';
+import {
+    Package,
+    ShoppingCart,
+    LayoutGrid,
+    TrendingUp,
+    Users,
+} from '@lucide/vue';
 import AppLogo from '@/components/AppLogo.vue';
 import NavMain from '@/components/NavMain.vue';
 import NavUser from '@/components/NavUser.vue';
@@ -15,7 +21,8 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as contactsIndex } from '@/routes/contacts';
-import { index as documentsIndex } from '@/routes/documents';
+import { index as purchasesIndex } from '@/routes/documents/purchases';
+import { index as salesIndex } from '@/routes/documents/sales';
 import { index as productsIndex } from '@/routes/products';
 import type { NavItem } from '@/types';
 
@@ -26,9 +33,14 @@ const mainNavItems: NavItem[] = [
         icon: LayoutGrid,
     },
     {
-        title: 'Ventas/Compras',
-        href: documentsIndex(),
-        icon: FileText,
+        title: 'Ventas',
+        href: salesIndex(),
+        icon: TrendingUp,
+    },
+    {
+        title: 'Compras',
+        href: purchasesIndex(),
+        icon: ShoppingCart,
     },
     {
         title: 'Contactos',
