@@ -125,6 +125,21 @@ function money(value: number | string) {
             </template>
         </div>
 
+        <div
+            v-if="document.payments?.length"
+            class="mt-3 space-y-1 border-t border-dashed border-neutral-300 pt-3 text-xs"
+        >
+            <p class="font-semibold text-neutral-600">Abonos</p>
+            <div
+                v-for="payment in document.payments"
+                :key="payment.id"
+                class="flex justify-between text-neutral-600"
+            >
+                <span>{{ formatDate(payment.paid_at) }}</span>
+                <span>{{ money(payment.amount) }}</span>
+            </div>
+        </div>
+
         <div class="mt-4 flex justify-center">
             <span
                 class="rounded-full border border-neutral-300 px-3 py-1 text-xs tracking-wide uppercase"
