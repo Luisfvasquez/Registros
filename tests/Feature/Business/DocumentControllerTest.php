@@ -5,6 +5,7 @@ namespace Tests\Feature\Business;
 use App\Models\Contact;
 use App\Models\Document;
 use App\Models\ExchangeRate;
+use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -219,30 +220,20 @@ class DocumentControllerTest extends TestCase
         $this->assertModelMissing($budget);
     }
 
-    public function test_the_sales_view_only_lists_sale_documents()
+    public function test_the_sales_view_only_lists_contacts_with_sale_documents()
     {
         $user = User::factory()->create();
-        $contact = Contact::factory()->create();
-        $sale = Document::create([
-            'number' => 'PRE-00001',
+        $seller = Contact::factory()->create(['name' => 'Cliente Venta']);
+        $buyer = Contact::factory()->create(['name' => 'Proveedor Compra']);
+
+        Document::factory()->create([
             'operation_type' => 'venta',
-            'document_type' => 'presupuesto',
-            'status' => 'pendiente',
-            'contact_id' => $contact->id,
-            'issue_date' => now()->toDateString(),
-            'subtotal' => 100,
-            'tax_total' => 0,
+            'contact_id' => $seller->id,
             'total' => 100,
         ]);
-        $purchase = Document::create([
-            'number' => 'PRE-00002',
+        Document::factory()->create([
             'operation_type' => 'compra',
-            'document_type' => 'presupuesto',
-            'status' => 'pendiente',
-            'contact_id' => $contact->id,
-            'issue_date' => now()->toDateString(),
-            'subtotal' => 100,
-            'tax_total' => 0,
+            'contact_id' => $buyer->id,
             'total' => 100,
         ]);
 
@@ -251,35 +242,26 @@ class DocumentControllerTest extends TestCase
         $response->assertOk();
         $response->assertInertia(fn ($page) => $page
             ->where('lockedOperationType', 'venta')
-            ->has('documents.data', 1)
-            ->where('documents.data.0.id', $sale->id)
+            ->has('contacts', 1)
+            ->where('contacts.0.id', $seller->id)
+            ->where('selectedContact', null)
         );
     }
 
-    public function test_the_purchases_view_only_lists_purchase_documents()
+    public function test_the_purchases_view_only_lists_contacts_with_purchase_documents()
     {
         $user = User::factory()->create();
-        $contact = Contact::factory()->create();
-        Document::create([
-            'number' => 'PRE-00001',
+        $seller = Contact::factory()->create();
+        $buyer = Contact::factory()->create();
+
+        Document::factory()->create([
             'operation_type' => 'venta',
-            'document_type' => 'presupuesto',
-            'status' => 'pendiente',
-            'contact_id' => $contact->id,
-            'issue_date' => now()->toDateString(),
-            'subtotal' => 100,
-            'tax_total' => 0,
+            'contact_id' => $seller->id,
             'total' => 100,
         ]);
-        $purchase = Document::create([
-            'number' => 'PRE-00002',
+        Document::factory()->create([
             'operation_type' => 'compra',
-            'document_type' => 'presupuesto',
-            'status' => 'pendiente',
-            'contact_id' => $contact->id,
-            'issue_date' => now()->toDateString(),
-            'subtotal' => 100,
-            'tax_total' => 0,
+            'contact_id' => $buyer->id,
             'total' => 100,
         ]);
 
@@ -288,8 +270,77 @@ class DocumentControllerTest extends TestCase
         $response->assertOk();
         $response->assertInertia(fn ($page) => $page
             ->where('lockedOperationType', 'compra')
-            ->has('documents.data', 1)
-            ->where('documents.data.0.id', $purchase->id)
+            ->has('contacts', 1)
+            ->where('contacts.0.id', $buyer->id)
+        );
+    }
+
+    public function test_selecting_a_contact_returns_only_that_contacts_documents_for_the_operation()
+    {
+        $user = User::factory()->create();
+        $contact = Contact::factory()->create();
+        $other = Contact::factory()->create();
+
+        $sale = Document::factory()->create([
+            'operation_type' => 'venta',
+            'document_type' => 'factura',
+            'contact_id' => $contact->id,
+            'total' => 100,
+        ]);
+        // Same contact but a purchase — must not show up in the sales drill-down.
+        Document::factory()->create([
+            'operation_type' => 'compra',
+            'contact_id' => $contact->id,
+            'total' => 100,
+        ]);
+        // Another contact's sale — must not show up either.
+        Document::factory()->create([
+            'operation_type' => 'venta',
+            'contact_id' => $other->id,
+            'total' => 100,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('documents.sales.index', ['contact' => $contact->id]));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->where('selectedContact.id', $contact->id)
+            ->has('selectedDocuments', 1)
+            ->where('selectedDocuments.0.id', $sale->id)
+        );
+    }
+
+    public function test_contact_summary_balance_only_counts_outstanding_invoices()
+    {
+        $user = User::factory()->create();
+        $contact = Contact::factory()->create();
+
+        $invoice = Document::factory()->create([
+            'operation_type' => 'venta',
+            'document_type' => 'factura',
+            'status' => 'parcial',
+            'contact_id' => $contact->id,
+            'total' => 100,
+        ]);
+        $invoice->payments()->create([
+            'payment_method_id' => PaymentMethod::factory()->create()->id,
+            'amount' => 30,
+            'paid_at' => now()->toDateString(),
+        ]);
+        // A budget never counts toward the outstanding balance.
+        Document::factory()->create([
+            'operation_type' => 'venta',
+            'document_type' => 'presupuesto',
+            'status' => 'pendiente',
+            'contact_id' => $contact->id,
+            'total' => 500,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('documents.sales.index'));
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('contacts.0.balance', 70)
+            ->where('contacts.0.documents_count', 2)
         );
     }
 }

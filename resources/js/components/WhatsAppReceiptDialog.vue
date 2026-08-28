@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Download, MessageCircle } from '@lucide/vue';
-import { toPng } from 'html-to-image';
-import { ref } from 'vue';
+import { toBlob, toPng } from 'html-to-image';
+import { computed, ref } from 'vue';
+import CombinedReceiptTicket from '@/components/CombinedReceiptTicket.vue';
 import ReceiptTicket from '@/components/ReceiptTicket.vue';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,21 +11,51 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import type { Document } from '@/types';
+import type { Contact, Document } from '@/types';
+
+type DocumentWithTotals = Document & { balance: number; paid_total: number };
 
 const props = defineProps<{
-    document: Document;
-    paidTotal: number;
-    balance: number;
+    // Single-document mode (used from documents/Show.vue)
+    document?: Document;
+    paidTotal?: number;
+    balance?: number;
+    // Combined mode (used from documents/Index.vue) — several documents of one contact
+    documents?: DocumentWithTotals[];
+    contact?: Contact;
 }>();
 
 const open = defineModel<boolean>('open', { default: false });
 
-const ticketRef = ref<InstanceType<typeof ReceiptTicket> | null>(null);
-const generating = ref(false);
+const isCombined = computed(
+    () => Array.isArray(props.documents) && props.documents.length > 0,
+);
 
-async function captureImage(): Promise<string | null> {
-    const node = ticketRef.value?.$el as HTMLElement | undefined;
+const targetContact = computed(
+    () => props.contact ?? props.document?.contact ?? null,
+);
+
+const fileName = computed(() => {
+    if (isCombined.value) {
+        const slug = (targetContact.value?.name ?? 'comprobante')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        return `${slug || 'comprobante'}-${props.documents!.length}-docs`;
+    }
+
+    return props.document?.number ?? 'comprobante';
+});
+
+const ticketEl = ref<HTMLElement | null>(null);
+const generating = ref(false);
+const hint = ref('');
+
+async function withNode<T>(
+    action: (node: HTMLElement) => Promise<T>,
+): Promise<T | null> {
+    const node = ticketEl.value?.firstElementChild as HTMLElement | undefined;
 
     if (!node) {
         return null;
@@ -33,14 +64,22 @@ async function captureImage(): Promise<string | null> {
     generating.value = true;
 
     try {
-        return await toPng(node, { pixelRatio: 2 });
+        return await action(node);
     } finally {
         generating.value = false;
     }
 }
 
+function captureDataUrl(): Promise<string | null> {
+    return withNode((node) => toPng(node, { pixelRatio: 2 }));
+}
+
+function captureBlob(): Promise<Blob | null> {
+    return withNode((node) => toBlob(node, { pixelRatio: 2 }));
+}
+
 async function download() {
-    const dataUrl = await captureImage();
+    const dataUrl = await captureDataUrl();
 
     if (!dataUrl) {
         return;
@@ -48,38 +87,134 @@ async function download() {
 
     const link = window.document.createElement('a');
     link.href = dataUrl;
-    link.download = `${props.document.number}.png`;
+    link.download = `${fileName.value}.png`;
     link.click();
 }
 
-function whatsappSummary() {
+function currency(value: number | string) {
+    return new Intl.NumberFormat('es-AR', {
+        style: 'currency',
+        currency: 'ARS',
+    }).format(Number(value));
+}
+
+function whatsappSummary(): string {
+    if (isCombined.value) {
+        const documents = props.documents!;
+        const operation =
+            documents[0]?.operation_type === 'compra' ? 'Compra' : 'Venta';
+        const total = documents.reduce(
+            (sum, document) => sum + Number(document.total),
+            0,
+        );
+        const balance = documents
+            .filter((document) => document.document_type === 'factura')
+            .reduce((sum, document) => sum + Number(document.balance), 0);
+        const hasInvoices = documents.some(
+            (document) => document.document_type === 'factura',
+        );
+
+        const lines = [
+            `*${operation} — ${documents.length} documento(s)*`,
+            targetContact.value?.name ?? '',
+            ...documents.map(
+                (document) =>
+                    `${document.number}   ${currency(document.total)}`,
+            ),
+            '----------------',
+            `Total: ${currency(total)}`,
+        ];
+
+        if (hasInvoices) {
+            lines.push(`Saldo: ${currency(balance)}`);
+        }
+
+        return lines.filter(Boolean).join('\n');
+    }
+
+    const document = props.document!;
     const lines = [
-        `*${props.document.document_type === 'factura' ? 'Orden' : 'Presupuesto'} ${props.document.number}*`,
-        `Total: ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(Number(props.document.total))}`,
+        `*${document.document_type === 'factura' ? 'Orden' : 'Presupuesto'} ${document.number}*`,
+        `Total: ${currency(document.total)}`,
     ];
 
-    if (props.document.document_type === 'factura') {
-        lines.push(
-            `Saldo pendiente: ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(props.balance)}`,
-        );
+    if (document.document_type === 'factura') {
+        lines.push(`Saldo pendiente: ${currency(props.balance ?? 0)}`);
     }
 
     return lines.join('\n');
 }
 
-async function sendWhatsapp() {
-    await download();
+/**
+ * Venezuelan numbers are stored as operator + local number (e.g. 0414 + 8361745).
+ * wa.me needs the international form, so swap a leading 0 for the 58 country code.
+ */
+function toInternational(code?: string | null, phone?: string | null): string {
+    const digits = `${code ?? ''}${phone ?? ''}`.replace(/\D/g, '');
 
-    const contact = props.document.contact;
-    const digits =
-        `${contact?.phone_country_code ?? ''}${contact?.phone ?? ''}`.replace(
-            /\D/g,
-            '',
-        );
-    const text = encodeURIComponent(whatsappSummary());
+    if (!digits) {
+        return '';
+    }
+
+    if (digits.startsWith('58')) {
+        return digits;
+    }
+
+    if (digits.startsWith('0')) {
+        return `58${digits.slice(1)}`;
+    }
+
+    return digits;
+}
+
+async function sendWhatsapp() {
+    hint.value = '';
+
+    const blob = await captureBlob();
+    const text = whatsappSummary();
+    const file = blob
+        ? new File([blob], `${fileName.value}.png`, { type: 'image/png' })
+        : null;
+
+    // Mobile / supported browsers: share the image straight into the WhatsApp chat.
+    if (file && navigator.canShare?.({ files: [file] })) {
+        try {
+            await navigator.share({
+                files: [file],
+                text,
+                title: 'Comprobante',
+            });
+
+            return;
+        } catch (error) {
+            if ((error as DOMException)?.name === 'AbortError') {
+                return;
+            }
+            // fall through to the desktop path
+        }
+    }
+
+    // Desktop fallback: copy the image so it can be pasted, then open the chat with the text.
+    if (blob) {
+        try {
+            await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob }),
+            ]);
+            hint.value = 'Imagen copiada — pégala en el chat con Ctrl/Cmd + V.';
+        } catch {
+            hint.value =
+                'No se pudo copiar la imagen. Usa "Descargar imagen" y adjúntala.';
+        }
+    }
+
+    const digits = toInternational(
+        targetContact.value?.phone_country_code,
+        targetContact.value?.phone,
+    );
+    const encoded = encodeURIComponent(text);
     const url = digits
-        ? `https://wa.me/${digits}?text=${text}`
-        : `https://wa.me/?text=${text}`;
+        ? `https://wa.me/${digits}?text=${encoded}`
+        : `https://wa.me/?text=${encoded}`;
 
     window.open(url, '_blank');
 }
@@ -92,14 +227,24 @@ async function sendWhatsapp() {
                 <DialogTitle>Comprobante para WhatsApp</DialogTitle>
             </DialogHeader>
 
-            <div class="flex justify-center overflow-hidden rounded-lg border">
+            <div
+                ref="ticketEl"
+                class="flex justify-center overflow-hidden rounded-lg border"
+            >
+                <CombinedReceiptTicket
+                    v-if="isCombined && contact"
+                    :documents="documents!"
+                    :contact="contact"
+                />
                 <ReceiptTicket
-                    ref="ticketRef"
+                    v-else-if="document"
                     :document="document"
-                    :paid-total="paidTotal"
-                    :balance="balance"
+                    :paid-total="paidTotal ?? 0"
+                    :balance="balance ?? 0"
                 />
             </div>
+
+            <p v-if="hint" class="text-xs text-muted-foreground">{{ hint }}</p>
 
             <div class="flex flex-col gap-2 sm:flex-row">
                 <Button

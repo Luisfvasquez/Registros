@@ -37,9 +37,9 @@ class ContactControllerTest extends TestCase
         $response = $this->actingAs($user)->post(route('contacts.store'), [
             'type' => 'cliente',
             'name' => 'Juan Pérez',
-            'document' => '30-12345678-9',
-            'phone_country_code' => '+54',
-            'phone' => '3511234567',
+            'document' => 'V-12345678',
+            'phone_country_code' => '0414',
+            'phone' => '8361745',
             'email' => 'juan@example.com',
             'address' => 'Calle Falsa 123',
         ]);
@@ -48,7 +48,7 @@ class ContactControllerTest extends TestCase
 
         $this->assertDatabaseHas('contacts', [
             'name' => 'Juan Pérez',
-            'document' => '30-12345678-9',
+            'document' => 'V-12345678',
         ]);
     }
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\DocumentRequest;
+use App\Models\Contact;
 use App\Models\Document;
 use App\Models\ExchangeRate;
 use Illuminate\Http\RedirectResponse;
@@ -29,33 +30,77 @@ class DocumentController extends Controller
         return $this->listDocuments($request, 'compra');
     }
 
+    /**
+     * The sales/purchases screens are organised by contact: first a list of contacts that have
+     * documents of the given operation type, then — when a `contact` id is supplied — that
+     * contact's documents so several invoices can be picked and shared together.
+     */
     private function listDocuments(Request $request, ?string $lockedOperationType = null): Response
     {
-        $documents = Document::query()
-            ->with('contact:id,name')
-            ->when($request->string('search')->toString(), function ($query, $search) {
+        $search = $request->string('search')->toString();
+
+        $scopeOperation = fn ($query) => $query->when(
+            $lockedOperationType,
+            fn ($query, $value) => $query->where('operation_type', $value),
+        );
+
+        $contacts = Contact::query()
+            ->whereHas('documents', $scopeOperation)
+            ->when($search, function ($query, $search) {
                 $query->where(function ($query) use ($search) {
-                    $query->where('number', 'like', "%{$search}%")
-                        ->orWhereHas('contact', fn ($query) => $query->where('name', 'like', "%{$search}%"));
+                    $query->where('name', 'like', "%{$search}%")
+                        ->orWhere('document', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%");
                 });
             })
-            ->when(
-                $lockedOperationType,
-                fn ($query, $value) => $query->where('operation_type', $value),
-                fn ($query) => $query->when($request->string('operation_type')->toString(), fn ($query, $value) => $query->where('operation_type', $value)),
-            )
-            ->when($request->string('document_type')->toString(), fn ($query, $value) => $query->where('document_type', $value))
-            ->when($request->string('status')->toString(), fn ($query, $value) => $query->where('status', $value))
-            ->when($request->date('from'), fn ($query, $value) => $query->whereDate('issue_date', '>=', $value))
-            ->when($request->date('to'), fn ($query, $value) => $query->whereDate('issue_date', '<=', $value))
-            ->latest('issue_date')
-            ->latest('id')
-            ->paginate(15)
-            ->withQueryString();
+            ->with(['documents' => fn ($query) => $scopeOperation($query)->with('payments:id,document_id,amount')])
+            ->orderBy('name')
+            ->get()
+            ->map(function (Contact $contact) {
+                $documents = $contact->documents;
+                $invoices = $documents->where('document_type', 'factura');
+
+                return [
+                    'id' => $contact->id,
+                    'name' => $contact->name,
+                    'type' => $contact->type,
+                    'document' => $contact->document,
+                    'phone' => $contact->phone,
+                    'phone_country_code' => $contact->phone_country_code,
+                    'documents_count' => $documents->count(),
+                    'invoices_count' => $invoices->count(),
+                    'total' => (float) $documents->sum('total'),
+                    'balance' => (float) $invoices
+                        ->whereIn('status', ['pendiente', 'parcial'])
+                        ->sum(fn (Document $document) => round((float) $document->total - (float) $document->payments->sum('amount'), 2)),
+                ];
+            })
+            ->values();
+
+        $selectedContact = null;
+        $selectedDocuments = null;
+
+        if ($contactId = $request->integer('contact')) {
+            $selectedContact = Contact::findOrFail($contactId);
+
+            $selectedDocuments = $selectedContact->documents()
+                ->when($lockedOperationType, fn ($query, $value) => $query->where('operation_type', $value))
+                ->with(['items', 'payments'])
+                ->latest('issue_date')
+                ->latest('id')
+                ->get()
+                ->each(function (Document $document) use ($selectedContact) {
+                    $document->setAttribute('balance', $document->balance());
+                    $document->setAttribute('paid_total', $document->paidTotal());
+                    $document->setRelation('contact', $selectedContact);
+                });
+        }
 
         return Inertia::render('documents/Index', [
-            'documents' => $documents,
-            'filters' => $request->only(['search', 'operation_type', 'document_type', 'status', 'from', 'to']),
+            'contacts' => $contacts,
+            'selectedContact' => $selectedContact,
+            'selectedDocuments' => $selectedDocuments,
+            'filters' => $request->only(['search']),
             'lockedOperationType' => $lockedOperationType,
         ]);
     }

@@ -83,7 +83,7 @@ const form = useForm({
     type: 'cliente',
     name: '',
     document: '',
-    phone_country_code: '+54',
+    phone_country_code: '0414',
     phone: '',
     email: '',
     address: '',
@@ -101,7 +101,7 @@ function openEdit(contact: Contact) {
     form.type = contact.type;
     form.name = contact.name;
     form.document = contact.document ?? '';
-    form.phone_country_code = contact.phone_country_code ?? '+54';
+    form.phone_country_code = contact.phone_country_code ?? '0414';
     form.phone = contact.phone ?? '';
     form.email = contact.email ?? '';
     form.address = contact.address ?? '';
@@ -286,18 +286,18 @@ function destroy(contact: Contact) {
                     <Input
                         id="document"
                         v-model="form.document"
-                        placeholder="Ej: 30-12345678-9"
+                        placeholder="Ej: V-12345678"
                     />
                     <InputError :message="form.errors.document" />
                 </div>
 
                 <div class="grid grid-cols-3 gap-2">
                     <div class="grid gap-2">
-                        <Label for="phone_country_code">Código país</Label>
+                        <Label for="phone_country_code">Operadora</Label>
                         <Input
                             id="phone_country_code"
                             v-model="form.phone_country_code"
-                            placeholder="+54"
+                            placeholder="0414"
                         />
                     </div>
                     <div class="col-span-2 grid gap-2">
@@ -305,7 +305,7 @@ function destroy(contact: Contact) {
                         <Input
                             id="phone"
                             v-model="form.phone"
-                            placeholder="9351..."
+                            placeholder="8361745"
                         />
                     </div>
                 </div>

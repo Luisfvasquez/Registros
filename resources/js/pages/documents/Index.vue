@@ -1,55 +1,57 @@
 <script setup lang="ts">
 import { Head, Link, router, setLayoutProps } from '@inertiajs/vue3';
-import { ArrowRightLeft, Plus, Search } from '@lucide/vue';
+import {
+    ArrowLeft,
+    ArrowRightLeft,
+    MessageCircle,
+    Plus,
+    Search,
+} from '@lucide/vue';
 import { useDebounceFn } from '@vueuse/core';
-import { ref, watch, watchEffect } from 'vue';
+import { computed, ref, watch, watchEffect } from 'vue';
 import DocumentController, {
     index,
     create,
 } from '@/actions/App/Http/Controllers/DocumentController';
 import Heading from '@/components/Heading.vue';
 import MoneyBs from '@/components/MoneyBs.vue';
-import Pagination from '@/components/Pagination.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableEmpty,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
+import WhatsAppReceiptDialog from '@/components/WhatsAppReceiptDialog.vue';
 import { formatDate } from '@/lib/utils';
 import { dashboard } from '@/routes';
 import { index as purchasesIndex } from '@/routes/documents/purchases';
 import { index as salesIndex } from '@/routes/documents/sales';
 import type {
+    Contact,
+    ContactType,
     Document,
     DocumentStatus,
     DocumentType,
-    PaginatedData,
 } from '@/types';
 
+type DocumentWithTotals = Document & { balance: number; paid_total: number };
+
+type ContactSummary = {
+    id: number;
+    name: string;
+    type: ContactType;
+    document: string | null;
+    phone: string | null;
+    phone_country_code: string | null;
+    documents_count: number;
+    invoices_count: number;
+    total: number;
+    balance: number;
+};
+
 const props = defineProps<{
-    documents: PaginatedData<Document>;
-    filters: {
-        search?: string;
-        operation_type?: string;
-        document_type?: string;
-        status?: string;
-        from?: string;
-        to?: string;
-    };
+    contacts: ContactSummary[];
+    selectedContact: Contact | null;
+    selectedDocuments: DocumentWithTotals[] | null;
+    filters: { search?: string };
     lockedOperationType?: 'venta' | 'compra' | null;
 }>();
 
@@ -69,10 +71,13 @@ const pageTitle =
 
 const pageDescription =
     props.lockedOperationType === 'venta'
-        ? 'Presupuestos y órdenes de venta'
+        ? 'Clientes y sus órdenes de venta'
         : props.lockedOperationType === 'compra'
-          ? 'Presupuestos y órdenes de compra'
-          : 'Presupuestos y órdenes de venta y compra';
+          ? 'Proveedores y sus órdenes de compra'
+          : 'Contactos y sus documentos de venta y compra';
+
+const operationLabel =
+    props.lockedOperationType === 'compra' ? 'Compra' : 'Venta';
 
 defineOptions({
     layout: {
@@ -93,30 +98,34 @@ watchEffect(() => {
 });
 
 const search = ref(props.filters.search ?? '');
-const operationType = ref(props.filters.operation_type ?? 'all');
-const documentType = ref(props.filters.document_type ?? 'all');
-const status = ref(props.filters.status ?? 'all');
-const from = ref(props.filters.from ?? '');
-const to = ref(props.filters.to ?? '');
 
 const runFilter = useDebounceFn(() => {
     router.get(
         pageUrl,
-        {
-            search: search.value || undefined,
-            operation_type:
-                operationType.value === 'all' ? undefined : operationType.value,
-            document_type:
-                documentType.value === 'all' ? undefined : documentType.value,
-            status: status.value === 'all' ? undefined : status.value,
-            from: from.value || undefined,
-            to: to.value || undefined,
-        },
+        { search: search.value || undefined },
         { preserveState: true, replace: true },
     );
 }, 300);
 
-watch([search, operationType, documentType, status, from, to], runFilter);
+watch(search, runFilter);
+
+function openContact(contact: ContactSummary) {
+    router.get(
+        pageUrl,
+        { contact: contact.id },
+        { preserveState: true, preserveScroll: true },
+    );
+}
+
+function backToContacts() {
+    router.get(pageUrl, {}, { preserveState: true });
+}
+
+const contactTypeLabels: Record<ContactType, string> = {
+    cliente: 'Cliente',
+    proveedor: 'Proveedor',
+    ambos: 'Cliente y proveedor',
+};
 
 const statusStyles: Record<DocumentStatus, string> = {
     pendiente:
@@ -141,7 +150,7 @@ const documentTypeLabels: Record<DocumentType, string> = {
     factura: 'Orden',
 };
 
-function money(value: string) {
+function money(value: number | string) {
     return new Intl.NumberFormat('es-AR', {
         style: 'currency',
         currency: 'ARS',
@@ -152,6 +161,59 @@ function convert(document: Document) {
     if (confirm(`¿Convertir el presupuesto ${document.number} en orden?`)) {
         router.post(DocumentController.convertToInvoice.url(document));
     }
+}
+
+/* --- Multi-select + combined WhatsApp share --- */
+const selectedIds = ref<number[]>([]);
+
+watch(
+    () => props.selectedContact?.id,
+    () => {
+        selectedIds.value = [];
+    },
+);
+
+function toggle(id: number, checked: boolean) {
+    if (checked) {
+        selectedIds.value = [...selectedIds.value, id];
+    } else {
+        selectedIds.value = selectedIds.value.filter((value) => value !== id);
+    }
+}
+
+const allSelected = computed(
+    () =>
+        (props.selectedDocuments?.length ?? 0) > 0 &&
+        selectedIds.value.length === props.selectedDocuments?.length,
+);
+
+function toggleAll(checked: boolean) {
+    selectedIds.value = checked
+        ? (props.selectedDocuments ?? []).map((document) => document.id)
+        : [];
+}
+
+const selectedDocumentsForShare = computed(() =>
+    (props.selectedDocuments ?? []).filter((document) =>
+        selectedIds.value.includes(document.id),
+    ),
+);
+
+const whatsappOpen = ref(false);
+const shareDocuments = ref<DocumentWithTotals[]>([]);
+
+function shareSelection() {
+    if (selectedDocumentsForShare.value.length === 0) {
+        return;
+    }
+
+    shareDocuments.value = selectedDocumentsForShare.value;
+    whatsappOpen.value = true;
+}
+
+function shareOne(document: DocumentWithTotals) {
+    shareDocuments.value = [document];
+    whatsappOpen.value = true;
 }
 </script>
 
@@ -166,7 +228,11 @@ function convert(document: Document) {
                     :href="
                         create.url(
                             lockedOperationType
-                                ? { query: { operation_type: lockedOperationType } }
+                                ? {
+                                      query: {
+                                          operation_type: lockedOperationType,
+                                      },
+                                  }
                                 : undefined,
                         )
                     "
@@ -177,143 +243,216 @@ function convert(document: Document) {
             </Button>
         </div>
 
-        <div
-            class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
-        >
+        <!-- Contact detail: this contact's documents -->
+        <template v-if="selectedContact">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <Button variant="ghost" size="sm" @click="backToContacts">
+                    <ArrowLeft class="size-4" />
+                    Todos los contactos
+                </Button>
+            </div>
+
+            <div class="rounded-xl border p-4">
+                <p class="font-medium">{{ selectedContact.name }}</p>
+                <p class="text-sm text-muted-foreground">
+                    {{ contactTypeLabels[selectedContact.type] }}
+                </p>
+                <div
+                    class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted-foreground"
+                >
+                    <span v-if="selectedContact.document"
+                        >Doc: {{ selectedContact.document }}</span
+                    >
+                    <span v-if="selectedContact.phone"
+                        >Tel: {{ selectedContact.phone_country_code }}
+                        {{ selectedContact.phone }}</span
+                    >
+                    <span v-if="selectedContact.email">{{
+                        selectedContact.email
+                    }}</span>
+                </div>
+            </div>
+
+            <div class="rounded-xl border">
+                <div
+                    class="flex items-center gap-3 border-b p-3 text-sm font-medium"
+                >
+                    <Checkbox
+                        :model-value="allSelected"
+                        aria-label="Seleccionar todo"
+                        @update:model-value="toggleAll(Boolean($event))"
+                    />
+                    <span>Documentos</span>
+                </div>
+
+                <p
+                    v-if="!selectedDocuments || selectedDocuments.length === 0"
+                    class="p-4 text-sm text-muted-foreground"
+                >
+                    Este contacto todavía no tiene documentos de
+                    {{ operationLabel.toLowerCase() }}.
+                </p>
+
+                <ul v-else class="divide-y">
+                    <li
+                        v-for="document in selectedDocuments"
+                        :key="document.id"
+                        class="flex flex-wrap items-center gap-3 p-3"
+                    >
+                        <Checkbox
+                            :model-value="selectedIds.includes(document.id)"
+                            :aria-label="`Seleccionar ${document.number}`"
+                            @update:model-value="
+                                toggle(document.id, Boolean($event))
+                            "
+                        />
+                        <div class="min-w-0 flex-1">
+                            <Link
+                                :href="DocumentController.show.url(document)"
+                                class="font-medium hover:underline"
+                            >
+                                {{ document.number }}
+                            </Link>
+                            <p class="text-xs text-muted-foreground">
+                                {{
+                                    documentTypeLabels[document.document_type]
+                                }}
+                                ·
+                                {{ formatDate(document.issue_date) }}
+                            </p>
+                        </div>
+                        <div class="text-right text-sm">
+                            <p>{{ money(document.total) }}</p>
+                            <MoneyBs :amount="document.total" />
+                            <p
+                                v-if="
+                                    document.document_type === 'factura' &&
+                                    document.balance > 0
+                                "
+                                class="text-xs text-amber-600 dark:text-amber-400"
+                            >
+                                Saldo {{ money(document.balance) }}
+                            </p>
+                        </div>
+                        <Badge
+                            :class="statusStyles[document.status]"
+                            variant="secondary"
+                        >
+                            {{ statusLabels[document.status] }}
+                        </Badge>
+                        <Button
+                            v-if="
+                                document.document_type === 'presupuesto' &&
+                                document.status === 'pendiente'
+                            "
+                            variant="ghost"
+                            size="sm"
+                            @click="convert(document)"
+                        >
+                            <ArrowRightLeft class="size-4" />
+                            Convertir
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            @click="shareOne(document)"
+                        >
+                            <MessageCircle class="size-4" />
+                        </Button>
+                    </li>
+                </ul>
+            </div>
+
+            <div
+                v-if="selectedIds.length > 0"
+                class="sticky bottom-4 flex items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur"
+            >
+                <span class="text-sm text-muted-foreground">
+                    {{ selectedIds.length }} seleccionada(s)
+                </span>
+                <Button @click="shareSelection">
+                    <MessageCircle class="size-4" />
+                    Enviar {{ selectedIds.length }} por WhatsApp
+                </Button>
+            </div>
+        </template>
+
+        <!-- Contact list -->
+        <template v-else>
             <div class="relative w-full sm:max-w-xs">
                 <Search
                     class="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground"
                 />
                 <Input
                     v-model="search"
-                    placeholder="Buscar por número o contacto…"
+                    placeholder="Buscar por nombre, documento o teléfono…"
                     class="pl-9"
                 />
             </div>
 
-            <Select v-if="!lockedOperationType" v-model="operationType">
-                <SelectTrigger class="w-full sm:w-40"
-                    ><SelectValue placeholder="Operación"
-                /></SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">Venta y compra</SelectItem>
-                    <SelectItem value="venta">Venta</SelectItem>
-                    <SelectItem value="compra">Compra</SelectItem>
-                </SelectContent>
-            </Select>
+            <p
+                v-if="contacts.length === 0"
+                class="rounded-xl border p-6 text-center text-sm text-muted-foreground"
+            >
+                No hay contactos con documentos todavía.
+            </p>
 
-            <Select v-model="documentType">
-                <SelectTrigger class="w-full sm:w-44"
-                    ><SelectValue placeholder="Tipo"
-                /></SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">Presupuestos y órdenes</SelectItem>
-                    <SelectItem value="presupuesto">Presupuestos</SelectItem>
-                    <SelectItem value="factura">Órdenes</SelectItem>
-                </SelectContent>
-            </Select>
-
-            <Select v-model="status">
-                <SelectTrigger class="w-full sm:w-40"
-                    ><SelectValue placeholder="Estado"
-                /></SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">Todos los estados</SelectItem>
-                    <SelectItem value="pendiente">Pendiente</SelectItem>
-                    <SelectItem value="parcial">Parcial</SelectItem>
-                    <SelectItem value="pagado">Pagado</SelectItem>
-                    <SelectItem value="convertido">Convertido</SelectItem>
-                </SelectContent>
-            </Select>
-
-            <Input v-model="from" type="date" class="w-full sm:w-40" />
-            <Input v-model="to" type="date" class="w-full sm:w-40" />
-        </div>
-
-        <div class="rounded-xl border">
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Número</TableHead>
-                        <TableHead>Contacto</TableHead>
-                        <TableHead
-                            v-if="!lockedOperationType"
-                            class="hidden md:table-cell"
-                            >Operación</TableHead
-                        >
-                        <TableHead class="hidden md:table-cell">Tipo</TableHead>
-                        <TableHead class="hidden sm:table-cell"
-                            >Fecha</TableHead
-                        >
-                        <TableHead>Total</TableHead>
-                        <TableHead>Estado</TableHead>
-                        <TableHead class="text-right">Acciones</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    <TableEmpty
-                        v-if="documents.data.length === 0"
-                        :colspan="lockedOperationType ? 7 : 8"
+            <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <button
+                    v-for="contact in contacts"
+                    :key="contact.id"
+                    type="button"
+                    class="flex flex-col gap-2 rounded-xl border p-4 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+                    @click="openContact(contact)"
+                >
+                    <div class="flex items-start justify-between gap-2">
+                        <p class="font-medium">{{ contact.name }}</p>
+                        <Badge variant="secondary">{{
+                            contactTypeLabels[contact.type]
+                        }}</Badge>
+                    </div>
+                    <p
+                        v-if="contact.document || contact.phone"
+                        class="text-xs text-muted-foreground"
                     >
-                        No hay documentos todavía.
-                    </TableEmpty>
-                    <TableRow
-                        v-for="document in documents.data"
-                        :key="document.id"
-                    >
-                        <TableCell class="font-medium">
-                            <Link
-                                :href="DocumentController.show.url(document)"
-                                class="hover:underline"
-                            >
-                                {{ document.number }}
-                            </Link>
-                        </TableCell>
-                        <TableCell class="max-w-32 truncate sm:max-w-none">{{
-                            document.contact?.name
-                        }}</TableCell>
-                        <TableCell
-                            v-if="!lockedOperationType"
-                            class="hidden capitalize md:table-cell"
-                            >{{ document.operation_type }}</TableCell
+                        <span v-if="contact.document">{{
+                            contact.document
+                        }}</span>
+                        <span v-if="contact.document && contact.phone">
+                            ·
+                        </span>
+                        <span v-if="contact.phone"
+                            >{{ contact.phone_country_code }}
+                            {{ contact.phone }}</span
                         >
-                        <TableCell class="hidden md:table-cell">{{
-                            documentTypeLabels[document.document_type]
-                        }}</TableCell>
-                        <TableCell class="hidden sm:table-cell">{{
-                            formatDate(document.issue_date)
-                        }}</TableCell>
-                        <TableCell>
-                            {{ money(document.total) }}
-                            <MoneyBs :amount="document.total" />
-                        </TableCell>
-                        <TableCell>
-                            <Badge
-                                :class="statusStyles[document.status]"
-                                variant="secondary"
+                    </p>
+                    <div
+                        class="mt-1 flex items-end justify-between gap-2 border-t pt-2 text-sm"
+                    >
+                        <span class="text-muted-foreground">
+                            {{ contact.documents_count }} documento(s)
+                        </span>
+                        <div class="text-right">
+                            <p class="font-semibold">
+                                {{ money(contact.total) }}
+                            </p>
+                            <p
+                                v-if="contact.balance > 0"
+                                class="text-xs text-amber-600 dark:text-amber-400"
                             >
-                                {{ statusLabels[document.status] }}
-                            </Badge>
-                        </TableCell>
-                        <TableCell class="text-right">
-                            <Button
-                                v-if="
-                                    document.document_type === 'presupuesto' &&
-                                    document.status === 'pendiente'
-                                "
-                                variant="ghost"
-                                size="sm"
-                                @click="convert(document)"
-                            >
-                                <ArrowRightLeft class="size-4" />
-                                Convertir
-                            </Button>
-                        </TableCell>
-                    </TableRow>
-                </TableBody>
-            </Table>
-        </div>
-
-        <Pagination :paginator="documents" />
+                                Saldo {{ money(contact.balance) }}
+                            </p>
+                        </div>
+                    </div>
+                </button>
+            </div>
+        </template>
     </div>
+
+    <WhatsAppReceiptDialog
+        v-if="selectedContact"
+        v-model:open="whatsappOpen"
+        :documents="shareDocuments"
+        :contact="selectedContact"
+    />
 </template>

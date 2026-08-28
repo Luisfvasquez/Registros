@@ -20,9 +20,9 @@ class ContactFactory extends Factory
         return [
             'type' => fake()->randomElement(['cliente', 'proveedor', 'ambos']),
             'name' => fake()->company(),
-            'document' => fake()->numerify('########-#'),
-            'phone_country_code' => '+54',
-            'phone' => fake()->numerify('9##########'),
+            'document' => fake()->bothify('V-########'),
+            'phone_country_code' => fake()->randomElement(['0414', '0424', '0412', '0416', '0426']),
+            'phone' => fake()->numerify('#######'),
             'email' => fake()->boolean(70) ? fake()->companyEmail() : null,
             'address' => fake()->boolean(70) ? fake()->address() : null,
         ];
