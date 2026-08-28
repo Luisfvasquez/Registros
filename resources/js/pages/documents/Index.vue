@@ -389,7 +389,7 @@ function shareOne(document: DocumentWithTotals) {
                                         "
                                         class="text-xs text-amber-600 dark:text-amber-400"
                                     >
-                                        Saldo {{ money(document.balance) }}
+                                        Deuda {{ money(document.balance) }}
                                     </p>
                                 </div>
                                 <Badge
@@ -529,7 +529,7 @@ function shareOne(document: DocumentWithTotals) {
                                 v-if="contact.balance > 0"
                                 class="text-xs text-amber-600 dark:text-amber-400"
                             >
-                                Saldo {{ money(contact.balance) }}
+                                Deuda {{ money(contact.balance) }}
                             </p>
                         </div>
                     </div>

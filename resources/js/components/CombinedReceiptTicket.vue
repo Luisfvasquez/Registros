@@ -25,8 +25,10 @@ const grandBalance = computed(() =>
         .reduce((sum, document) => sum + Number(document.balance), 0),
 );
 
-const hasInvoices = computed(() =>
-    props.documents.some((document) => document.document_type === 'factura'),
+const grandPaid = computed(() =>
+    props.documents
+        .filter((document) => document.document_type === 'factura')
+        .reduce((sum, document) => sum + Number(document.paid_total), 0),
 );
 
 function money(value: number | string) {
@@ -76,8 +78,13 @@ function money(value: number | string) {
                 </div>
                 <p class="text-neutral-500">
                     {{ formatDate(document.issue_date) }}
-                    <span v-if="document.document_type === 'factura'">
-                        · Saldo {{ money(document.balance) }}</span
+                    <span
+                        v-if="
+                            document.document_type === 'factura' &&
+                            Number(document.balance) > 0
+                        "
+                    >
+                        · Deuda {{ money(document.balance) }}</span
                     >
                 </p>
                 <div
@@ -107,16 +114,22 @@ function money(value: number | string) {
                     />
                 </span>
             </div>
-            <div v-if="hasInvoices" class="flex justify-between font-semibold">
-                <span>Saldo</span>
-                <span>
-                    {{ money(grandBalance) }}
-                    <MoneyBs
-                        :amount="grandBalance"
-                        class="text-right! text-neutral-500"
-                    />
-                </span>
-            </div>
+            <template v-if="grandBalance > 0">
+                <div class="flex justify-between text-neutral-600">
+                    <span>Abono</span>
+                    <span>{{ money(grandPaid) }}</span>
+                </div>
+                <div class="flex justify-between font-semibold">
+                    <span>Deuda</span>
+                    <span>
+                        {{ money(grandBalance) }}
+                        <MoneyBs
+                            :amount="grandBalance"
+                            class="text-right! text-neutral-500"
+                        />
+                    </span>
+                </div>
+            </template>
         </div>
     </div>
 </template>

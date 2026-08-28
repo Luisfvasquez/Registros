@@ -337,7 +337,7 @@ function deletePayment(paymentId: number) {
                             <div
                                 class="flex justify-between text-base font-semibold"
                             >
-                                <span>Saldo restante</span>
+                                <span>Deuda restante</span>
                                 <span class="text-right">
                                     {{ money(balance) }}
                                     <MoneyBs :amount="balance" />

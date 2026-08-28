@@ -107,11 +107,16 @@ function whatsappSummary(): string {
             (sum, document) => sum + Number(document.total),
             0,
         );
-        const balance = documents
-            .filter((document) => document.document_type === 'factura')
-            .reduce((sum, document) => sum + Number(document.balance), 0);
-        const hasInvoices = documents.some(
+        const invoices = documents.filter(
             (document) => document.document_type === 'factura',
+        );
+        const balance = invoices.reduce(
+            (sum, document) => sum + Number(document.balance),
+            0,
+        );
+        const paid = invoices.reduce(
+            (sum, document) => sum + Number(document.paid_total),
+            0,
         );
 
         const lines = [
@@ -125,8 +130,9 @@ function whatsappSummary(): string {
             `Total: ${currency(total)}`,
         ];
 
-        if (hasInvoices) {
-            lines.push(`Saldo: ${currency(balance)}`);
+        if (balance > 0) {
+            lines.push(`Abono: ${currency(paid)}`);
+            lines.push(`Deuda: ${currency(balance)}`);
         }
 
         return lines.filter(Boolean).join('\n');
@@ -138,8 +144,12 @@ function whatsappSummary(): string {
         `Total: ${currency(document.total)}`,
     ];
 
-    if (document.document_type === 'factura') {
-        lines.push(`Saldo pendiente: ${currency(props.balance ?? 0)}`);
+    if (
+        document.document_type === 'factura' &&
+        Number(props.balance ?? 0) > 0
+    ) {
+        lines.push(`Abono: ${currency(props.paidTotal ?? 0)}`);
+        lines.push(`Deuda: ${currency(props.balance ?? 0)}`);
     }
 
     return lines.join('\n');

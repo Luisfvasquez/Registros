@@ -107,13 +107,17 @@ function money(value: number | string) {
                 </span>
             </div>
 
-            <template v-if="document.document_type === 'factura'">
+            <template
+                v-if="
+                    document.document_type === 'factura' && Number(balance) > 0
+                "
+            >
                 <div class="flex justify-between text-neutral-600">
-                    <span>Abonado</span>
+                    <span>Abono</span>
                     <span>{{ money(paidTotal) }}</span>
                 </div>
                 <div class="flex justify-between font-semibold">
-                    <span>Saldo</span>
+                    <span>Deuda</span>
                     <span>
                         {{ money(balance) }}
                         <MoneyBs
