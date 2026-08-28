@@ -79,7 +79,7 @@ watch([search, type], runFilter);
 const dialogOpen = ref(false);
 const editing = ref<Contact | null>(null);
 
-const form = useForm({
+const emptyContact = {
     type: 'cliente',
     name: '',
     document: '',
@@ -87,25 +87,38 @@ const form = useForm({
     phone: '',
     email: '',
     address: '',
-});
+};
+
+const form = useForm({ ...emptyContact });
+
+/**
+ * Inertia's useForm rebaselines its defaults to the submitted data on a successful
+ * request, so after editing a contact a plain form.reset() would restore that
+ * contact's values. Always set the defaults explicitly before reusing the form.
+ */
+function fillForm(values: typeof emptyContact) {
+    form.defaults({ ...values });
+    form.reset();
+    form.clearErrors();
+}
 
 function openCreate() {
     editing.value = null;
-    form.reset();
-    form.clearErrors();
+    fillForm(emptyContact);
     dialogOpen.value = true;
 }
 
 function openEdit(contact: Contact) {
     editing.value = contact;
-    form.type = contact.type;
-    form.name = contact.name;
-    form.document = contact.document ?? '';
-    form.phone_country_code = contact.phone_country_code ?? '0414';
-    form.phone = contact.phone ?? '';
-    form.email = contact.email ?? '';
-    form.address = contact.address ?? '';
-    form.clearErrors();
+    fillForm({
+        type: contact.type,
+        name: contact.name,
+        document: contact.document ?? '',
+        phone_country_code: contact.phone_country_code ?? '0414',
+        phone: contact.phone ?? '',
+        email: contact.email ?? '',
+        address: contact.address ?? '',
+    });
     dialogOpen.value = true;
 }
 

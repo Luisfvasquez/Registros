@@ -13,8 +13,10 @@ import DocumentController, {
     index,
     create,
 } from '@/actions/App/Http/Controllers/DocumentController';
+import CombinedReceiptTicket from '@/components/CombinedReceiptTicket.vue';
 import Heading from '@/components/Heading.vue';
 import MoneyBs from '@/components/MoneyBs.vue';
+import ReceiptTicket from '@/components/ReceiptTicket.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -78,6 +80,21 @@ const pageDescription =
 
 const operationLabel =
     props.lockedOperationType === 'compra' ? 'Compra' : 'Venta';
+
+// Carries the contact through so the document form opens with them pre-selected.
+const newDocumentUrl = computed(() => {
+    const query: Record<string, string | number> = {};
+
+    if (props.lockedOperationType) {
+        query.operation_type = props.lockedOperationType;
+    }
+
+    if (props.selectedContact) {
+        query.contact = props.selectedContact.id;
+    }
+
+    return create.url(Object.keys(query).length > 0 ? { query } : undefined);
+});
 
 defineOptions({
     layout: {
@@ -165,11 +182,13 @@ function convert(document: Document) {
 
 /* --- Multi-select + combined WhatsApp share --- */
 const selectedIds = ref<number[]>([]);
+const previewId = ref<number | null>(null);
 
 watch(
     () => props.selectedContact?.id,
     () => {
         selectedIds.value = [];
+        previewId.value = null;
     },
 );
 
@@ -199,6 +218,33 @@ const selectedDocumentsForShare = computed(() =>
     ),
 );
 
+/**
+ * What the preview panel shows: the checked documents (so it matches exactly what
+ * "Enviar por WhatsApp" will send), otherwise the row the user last clicked, and
+ * as a fallback the first document — so the preview is never empty on entry.
+ */
+const previewDocuments = computed<DocumentWithTotals[]>(() => {
+    if (selectedDocumentsForShare.value.length > 0) {
+        return selectedDocumentsForShare.value;
+    }
+
+    const documents = props.selectedDocuments ?? [];
+
+    if (previewId.value !== null) {
+        const found = documents.find(
+            (document) => document.id === previewId.value,
+        );
+
+        if (found) {
+            return [found];
+        }
+    }
+
+    return documents.length > 0 ? [documents[0]] : [];
+});
+
+const previewIsCombined = computed(() => previewDocuments.value.length > 1);
+
 const whatsappOpen = ref(false);
 const shareDocuments = ref<DocumentWithTotals[]>([]);
 
@@ -224,19 +270,7 @@ function shareOne(document: DocumentWithTotals) {
         <div class="flex flex-wrap items-center justify-between gap-4">
             <Heading :title="pageTitle" :description="pageDescription" />
             <Button as-child>
-                <Link
-                    :href="
-                        create.url(
-                            lockedOperationType
-                                ? {
-                                      query: {
-                                          operation_type: lockedOperationType,
-                                      },
-                                  }
-                                : undefined,
-                        )
-                    "
-                >
+                <Link :href="newDocumentUrl">
                     <Plus class="size-4" />
                     Nuevo documento
                 </Link>
@@ -273,107 +307,162 @@ function shareOne(document: DocumentWithTotals) {
                 </div>
             </div>
 
-            <div class="rounded-xl border">
-                <div
-                    class="flex items-center gap-3 border-b p-3 text-sm font-medium"
-                >
-                    <Checkbox
-                        :model-value="allSelected"
-                        aria-label="Seleccionar todo"
-                        @update:model-value="toggleAll(Boolean($event))"
-                    />
-                    <span>Documentos</span>
+            <div
+                class="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6"
+            >
+                <div class="flex flex-col gap-4">
+                    <div class="rounded-xl border">
+                        <div
+                            class="flex items-center gap-3 border-b p-3 text-sm font-medium"
+                        >
+                            <Checkbox
+                                :model-value="allSelected"
+                                aria-label="Seleccionar todo"
+                                @update:model-value="toggleAll(Boolean($event))"
+                            />
+                            <span>Documentos</span>
+                        </div>
+
+                        <p
+                            v-if="
+                                !selectedDocuments ||
+                                selectedDocuments.length === 0
+                            "
+                            class="p-4 text-sm text-muted-foreground"
+                        >
+                            Este contacto todavía no tiene documentos de
+                            {{ operationLabel.toLowerCase() }}.
+                        </p>
+
+                        <ul v-else class="divide-y">
+                            <li
+                                v-for="document in selectedDocuments"
+                                :key="document.id"
+                                class="flex cursor-pointer flex-wrap items-center gap-3 p-3 transition-colors"
+                                :class="
+                                    previewDocuments.some(
+                                        (item) => item.id === document.id,
+                                    )
+                                        ? 'bg-accent/60'
+                                        : 'hover:bg-accent/30'
+                                "
+                                @click="previewId = document.id"
+                            >
+                                <Checkbox
+                                    :model-value="
+                                        selectedIds.includes(document.id)
+                                    "
+                                    :aria-label="`Seleccionar ${document.number}`"
+                                    @update:model-value="
+                                        toggle(document.id, Boolean($event))
+                                    "
+                                />
+                                <div class="min-w-0 flex-1">
+                                    <Link
+                                        :href="
+                                            DocumentController.show.url(
+                                                document,
+                                            )
+                                        "
+                                        class="font-medium hover:underline"
+                                    >
+                                        {{ document.number }}
+                                    </Link>
+                                    <p class="text-xs text-muted-foreground">
+                                        {{
+                                            documentTypeLabels[
+                                                document.document_type
+                                            ]
+                                        }}
+                                        ·
+                                        {{ formatDate(document.issue_date) }}
+                                    </p>
+                                </div>
+                                <div class="text-right text-sm">
+                                    <p>{{ money(document.total) }}</p>
+                                    <MoneyBs :amount="document.total" />
+                                    <p
+                                        v-if="
+                                            document.document_type ===
+                                                'factura' &&
+                                            document.balance > 0
+                                        "
+                                        class="text-xs text-amber-600 dark:text-amber-400"
+                                    >
+                                        Saldo {{ money(document.balance) }}
+                                    </p>
+                                </div>
+                                <Badge
+                                    :class="statusStyles[document.status]"
+                                    variant="secondary"
+                                >
+                                    {{ statusLabels[document.status] }}
+                                </Badge>
+                                <Button
+                                    v-if="
+                                        document.document_type ===
+                                            'presupuesto' &&
+                                        document.status === 'pendiente'
+                                    "
+                                    variant="ghost"
+                                    size="sm"
+                                    @click="convert(document)"
+                                >
+                                    <ArrowRightLeft class="size-4" />
+                                    Convertir
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    @click="shareOne(document)"
+                                >
+                                    <MessageCircle class="size-4" />
+                                </Button>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div
+                        v-if="selectedIds.length > 0"
+                        class="sticky bottom-4 flex items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur"
+                    >
+                        <span class="text-sm text-muted-foreground">
+                            {{ selectedIds.length }} seleccionada(s)
+                        </span>
+                        <Button @click="shareSelection">
+                            <MessageCircle class="size-4" />
+                            Enviar {{ selectedIds.length }} por WhatsApp
+                        </Button>
+                    </div>
                 </div>
 
-                <p
-                    v-if="!selectedDocuments || selectedDocuments.length === 0"
-                    class="p-4 text-sm text-muted-foreground"
+                <div
+                    v-if="selectedContact && previewDocuments.length > 0"
+                    class="mt-4 lg:sticky lg:top-4 lg:mt-0"
                 >
-                    Este contacto todavía no tiene documentos de
-                    {{ operationLabel.toLowerCase() }}.
-                </p>
-
-                <ul v-else class="divide-y">
-                    <li
-                        v-for="document in selectedDocuments"
-                        :key="document.id"
-                        class="flex flex-wrap items-center gap-3 p-3"
+                    <p
+                        class="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
                     >
-                        <Checkbox
-                            :model-value="selectedIds.includes(document.id)"
-                            :aria-label="`Seleccionar ${document.number}`"
-                            @update:model-value="
-                                toggle(document.id, Boolean($event))
-                            "
+                        Vista previa{{
+                            previewIsCombined
+                                ? ` · ${previewDocuments.length} documentos`
+                                : ''
+                        }}
+                    </p>
+                    <div class="overflow-auto rounded-xl border">
+                        <CombinedReceiptTicket
+                            v-if="previewIsCombined"
+                            :documents="previewDocuments"
+                            :contact="selectedContact"
                         />
-                        <div class="min-w-0 flex-1">
-                            <Link
-                                :href="DocumentController.show.url(document)"
-                                class="font-medium hover:underline"
-                            >
-                                {{ document.number }}
-                            </Link>
-                            <p class="text-xs text-muted-foreground">
-                                {{
-                                    documentTypeLabels[document.document_type]
-                                }}
-                                ·
-                                {{ formatDate(document.issue_date) }}
-                            </p>
-                        </div>
-                        <div class="text-right text-sm">
-                            <p>{{ money(document.total) }}</p>
-                            <MoneyBs :amount="document.total" />
-                            <p
-                                v-if="
-                                    document.document_type === 'factura' &&
-                                    document.balance > 0
-                                "
-                                class="text-xs text-amber-600 dark:text-amber-400"
-                            >
-                                Saldo {{ money(document.balance) }}
-                            </p>
-                        </div>
-                        <Badge
-                            :class="statusStyles[document.status]"
-                            variant="secondary"
-                        >
-                            {{ statusLabels[document.status] }}
-                        </Badge>
-                        <Button
-                            v-if="
-                                document.document_type === 'presupuesto' &&
-                                document.status === 'pendiente'
-                            "
-                            variant="ghost"
-                            size="sm"
-                            @click="convert(document)"
-                        >
-                            <ArrowRightLeft class="size-4" />
-                            Convertir
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            @click="shareOne(document)"
-                        >
-                            <MessageCircle class="size-4" />
-                        </Button>
-                    </li>
-                </ul>
-            </div>
-
-            <div
-                v-if="selectedIds.length > 0"
-                class="sticky bottom-4 flex items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur"
-            >
-                <span class="text-sm text-muted-foreground">
-                    {{ selectedIds.length }} seleccionada(s)
-                </span>
-                <Button @click="shareSelection">
-                    <MessageCircle class="size-4" />
-                    Enviar {{ selectedIds.length }} por WhatsApp
-                </Button>
+                        <ReceiptTicket
+                            v-else
+                            :document="previewDocuments[0]"
+                            :paid-total="previewDocuments[0].paid_total"
+                            :balance="previewDocuments[0].balance"
+                        />
+                    </div>
+                </div>
             </div>
         </template>
 

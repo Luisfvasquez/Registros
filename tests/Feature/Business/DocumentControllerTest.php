@@ -46,6 +46,37 @@ class DocumentControllerTest extends TestCase
         $this->assertCount(2, $document->items);
     }
 
+    public function test_the_create_form_can_be_opened_with_a_contact_preselected()
+    {
+        $user = User::factory()->create();
+        $contact = Contact::factory()->create();
+
+        $response = $this->actingAs($user)->get(route('documents.create', [
+            'contact' => $contact->id,
+            'operation_type' => 'venta',
+        ]));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('documents/Form')
+            ->where('contact.id', $contact->id)
+            ->where('defaults.operation_type', 'venta')
+        );
+    }
+
+    public function test_the_create_form_has_no_contact_when_none_is_requested()
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get(route('documents.create'));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('documents/Form')
+            ->where('contact', null)
+        );
+    }
+
     public function test_expenses_are_tracked_separately_and_never_affect_the_document_total()
     {
         $user = User::factory()->create();

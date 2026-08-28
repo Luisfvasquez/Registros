@@ -28,6 +28,7 @@ import type { Contact, Document, PaymentMethod, Product } from '@/types';
 
 const props = defineProps<{
     document: Document | null;
+    contact?: Contact | null;
     defaults: { operation_type?: string; document_type?: string };
 }>();
 
@@ -45,21 +46,28 @@ defineOptions({
 
 watchEffect(() => {
     const operationType =
-        props.document?.operation_type ?? props.defaults.operation_type ?? 'venta';
+        props.document?.operation_type ??
+        props.defaults.operation_type ??
+        'venta';
 
     setLayoutProps({
         breadcrumbs: [
             { title: 'Panel', href: dashboard() },
             {
                 title: operationType === 'compra' ? 'Compras' : 'Ventas',
-                href: operationType === 'compra' ? purchasesIndex() : salesIndex(),
+                href:
+                    operationType === 'compra'
+                        ? purchasesIndex()
+                        : salesIndex(),
             },
             { title: 'Nuevo documento', href: '#' },
         ],
     });
 });
 
-const selectedContact = ref<Contact | null>(props.document?.contact ?? null);
+const selectedContact = ref<Contact | null>(
+    props.document?.contact ?? props.contact ?? null,
+);
 
 type ItemRow = {
     product_id: number | null;
@@ -128,7 +136,10 @@ const form = useForm({
         props.document?.document_type ??
         props.defaults.document_type ??
         'presupuesto',
-    contact_id: props.document?.contact_id ?? (null as number | null),
+    contact_id:
+        props.document?.contact_id ??
+        props.contact?.id ??
+        (null as number | null),
     issue_date:
         props.document?.issue_date ?? new Date().toISOString().slice(0, 10),
     notes: props.document?.notes ?? '',

@@ -109,6 +109,9 @@ class DocumentController extends Controller
     {
         return Inertia::render('documents/Form', [
             'document' => null,
+            'contact' => ($contactId = $request->integer('contact'))
+                ? Contact::find($contactId)
+                : null,
             'defaults' => $request->only(['operation_type', 'document_type']),
         ]);
     }
