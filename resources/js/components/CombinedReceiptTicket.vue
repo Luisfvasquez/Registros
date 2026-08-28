@@ -94,9 +94,20 @@ function money(value: number | string) {
                 >
                     <span class="min-w-0 truncate"
                         >{{ Number(item.quantity) }}x
-                        {{ money(item.unit_price) }} {{ item.description }}</span
+                        {{ money(item.unit_price) }}
+                        {{ item.description }}</span
                     >
                     <span class="shrink-0">{{ money(item.subtotal) }}</span>
+                </div>
+                <div
+                    v-for="payment in document.payments ?? []"
+                    :key="`payment-${payment.id}`"
+                    class="flex justify-between gap-2 pl-2 text-neutral-500"
+                >
+                    <span class="min-w-0 truncate"
+                        >Abono {{ formatDate(payment.paid_at) }}</span
+                    >
+                    <span class="shrink-0">{{ money(payment.amount) }}</span>
                 </div>
             </div>
         </div>

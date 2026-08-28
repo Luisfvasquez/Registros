@@ -272,7 +272,7 @@ function shareOne(document: DocumentWithTotals) {
             <Button as-child>
                 <Link :href="newDocumentUrl">
                     <Plus class="size-4" />
-                    Nuevo documento
+                    Nueva orden
                 </Link>
             </Button>
         </div>

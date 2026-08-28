@@ -23,7 +23,7 @@ class DocumentControllerTest extends TestCase
 
         $response = $this->actingAs($user)->post(route('documents.store'), [
             'operation_type' => 'venta',
-            'document_type' => 'presupuesto',
+            'document_type' => 'factura',
             'contact_id' => $contact->id,
             'issue_date' => now()->toDateString(),
             'items' => [
@@ -44,6 +44,29 @@ class DocumentControllerTest extends TestCase
         $this->assertSame('292.00', $document->total);
         $this->assertSame('pendiente', $document->status);
         $this->assertCount(2, $document->items);
+    }
+
+    public function test_documents_are_always_created_as_orders_even_when_a_budget_is_requested()
+    {
+        $user = User::factory()->create();
+        $contact = Contact::factory()->create();
+
+        $response = $this->actingAs($user)->post(route('documents.store'), [
+            'operation_type' => 'venta',
+            'document_type' => 'presupuesto',
+            'contact_id' => $contact->id,
+            'issue_date' => now()->toDateString(),
+            'items' => [
+                ['description' => 'Item A', 'quantity' => 1, 'unit_price' => 100, 'tax_rate' => 0],
+            ],
+        ]);
+
+        $response->assertSessionHasNoErrors();
+
+        $document = Document::first();
+
+        $this->assertSame('factura', $document->document_type);
+        $this->assertStringStartsWith('FAC-', $document->number);
     }
 
     public function test_the_create_form_can_be_opened_with_a_contact_preselected()
@@ -84,7 +107,7 @@ class DocumentControllerTest extends TestCase
 
         $response = $this->actingAs($user)->post(route('documents.store'), [
             'operation_type' => 'compra',
-            'document_type' => 'presupuesto',
+            'document_type' => 'factura',
             'contact_id' => $contact->id,
             'issue_date' => now()->toDateString(),
             'items' => [
@@ -119,7 +142,7 @@ class DocumentControllerTest extends TestCase
 
         $response = $this->actingAs($user)->post(route('documents.store'), [
             'operation_type' => 'venta',
-            'document_type' => 'presupuesto',
+            'document_type' => 'factura',
             'contact_id' => $contact->id,
             'issue_date' => now()->toDateString(),
             'items' => [
@@ -141,7 +164,7 @@ class DocumentControllerTest extends TestCase
 
         $response = $this->actingAs($user)->post(route('documents.store'), [
             'operation_type' => 'venta',
-            'document_type' => 'presupuesto',
+            'document_type' => 'factura',
             'contact_id' => $contact->id,
             'issue_date' => now()->toDateString(),
             'items' => [],

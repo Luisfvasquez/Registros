@@ -39,7 +39,7 @@ defineOptions({
         breadcrumbs: [
             { title: 'Panel', href: dashboard() },
             { title: 'Ventas', href: salesIndex() },
-            { title: 'Nuevo documento', href: '#' },
+            { title: 'Nueva orden', href: '#' },
         ],
     },
 });
@@ -60,7 +60,7 @@ watchEffect(() => {
                         ? purchasesIndex()
                         : salesIndex(),
             },
-            { title: 'Nuevo documento', href: '#' },
+            { title: 'Nueva orden', href: '#' },
         ],
     });
 });
@@ -132,10 +132,11 @@ const form = useForm({
         props.document?.operation_type ??
         props.defaults.operation_type ??
         'venta',
+    // Budgets are disabled — every new document is created directly as an order (factura).
     document_type:
         props.document?.document_type ??
         props.defaults.document_type ??
-        'presupuesto',
+        'factura',
     contact_id:
         props.document?.contact_id ??
         props.contact?.id ??
@@ -255,21 +256,19 @@ function submit() {
 </script>
 
 <template>
-    <Head :title="isEditing ? 'Editar documento' : 'Nuevo documento'" />
+    <Head :title="isEditing ? 'Editar documento' : 'Nueva orden'" />
 
     <div class="flex flex-col gap-6">
         <Heading
             :title="
-                isEditing
-                    ? `Editar ${props.document?.number}`
-                    : 'Nuevo documento'
+                isEditing ? `Editar ${props.document?.number}` : 'Nueva orden'
             "
-            description="Presupuesto u orden de venta / compra"
+            description="Orden de venta / compra"
         />
 
         <form class="flex flex-col gap-6" @submit.prevent="submit">
             <div
-                class="grid gap-4 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-4"
+                class="grid gap-4 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-3"
             >
                 <div class="grid gap-2">
                     <Label for="operation_type">Operación</Label>
@@ -280,21 +279,6 @@ function submit() {
                         <SelectContent>
                             <SelectItem value="venta">Venta</SelectItem>
                             <SelectItem value="compra">Compra</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div class="grid gap-2">
-                    <Label for="document_type">Tipo de documento</Label>
-                    <Select v-model="form.document_type">
-                        <SelectTrigger id="document_type" class="w-full"
-                            ><SelectValue
-                        /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="presupuesto"
-                                >Presupuesto</SelectItem
-                            >
-                            <SelectItem value="factura">Orden</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
@@ -515,10 +499,7 @@ function submit() {
                 </div>
             </div>
 
-            <div
-                v-if="!isEditing && form.document_type === 'factura'"
-                class="rounded-xl border"
-            >
+            <div v-if="!isEditing" class="rounded-xl border">
                 <div class="flex items-center justify-between border-b p-4">
                     <div>
                         <h3 class="text-sm font-medium">Abonos</h3>

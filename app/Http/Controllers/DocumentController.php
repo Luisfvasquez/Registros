@@ -112,7 +112,7 @@ class DocumentController extends Controller
             'contact' => ($contactId = $request->integer('contact'))
                 ? Contact::find($contactId)
                 : null,
-            'defaults' => $request->only(['operation_type', 'document_type']),
+            'defaults' => $request->only(['operation_type']),
         ]);
     }
 
@@ -121,10 +121,11 @@ class DocumentController extends Controller
         $document = DB::transaction(function () use ($request) {
             $data = $request->validated();
 
+            // Budgets (presupuestos) are disabled: every new document is a direct order.
             $document = Document::create([
-                'number' => $this->nextNumber($data['document_type']),
+                'number' => $this->nextNumber('factura'),
                 'operation_type' => $data['operation_type'],
-                'document_type' => $data['document_type'],
+                'document_type' => 'factura',
                 'status' => 'pendiente',
                 'contact_id' => $data['contact_id'],
                 'issue_date' => $data['issue_date'],
@@ -141,7 +142,7 @@ class DocumentController extends Controller
                 'total' => $subtotal + $taxTotal,
             ]);
 
-            if ($document->document_type === 'factura' && ! empty($data['payments'])) {
+            if (! empty($data['payments'])) {
                 $this->syncPayments($document, $data['payments']);
             }
 
