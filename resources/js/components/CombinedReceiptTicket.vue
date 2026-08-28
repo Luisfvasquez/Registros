@@ -93,8 +93,8 @@ function money(value: number | string) {
                     class="flex justify-between gap-2 pl-2 text-neutral-500"
                 >
                     <span class="min-w-0 truncate"
-                        >{{ Number(item.quantity) }} ×
-                        {{ item.description }}</span
+                        >{{ Number(item.quantity) }}x
+                        {{ money(item.unit_price) }} {{ item.description }}</span
                     >
                     <span class="shrink-0">{{ money(item.subtotal) }}</span>
                 </div>
