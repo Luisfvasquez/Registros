@@ -99,6 +99,58 @@ export type Document = {
     updated_at: string;
 };
 
+export type BudgetSection =
+    'ingreso' | 'presupuesto' | 'gasto_fijo' | 'ahorro' | 'deuda';
+
+export type BudgetPeriodStatus = 'abierto' | 'cerrado';
+
+export type BudgetPeriod = {
+    id: number;
+    year: number;
+    month: number;
+    currency: string;
+    status: BudgetPeriodStatus;
+    available_money: string;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export type BudgetPeriodOption = Pick<
+    BudgetPeriod,
+    'id' | 'year' | 'month' | 'currency' | 'status'
+>;
+
+export type BudgetLine = {
+    id: number;
+    budget_period_id: number;
+    section: BudgetSection;
+    detail: string;
+    category: string | null;
+    payment_method: string | null;
+    ideal_percent: string | null;
+    planned: string;
+    actual: string;
+    is_unexpected: boolean;
+    position: number;
+    created_at: string;
+    updated_at: string;
+};
+
+export type BudgetSummary = {
+    ingreso_total: number;
+    ingreso_proyectado: number;
+    ganancias_inesperadas: number;
+    gastos_totales: number;
+    presupuesto_total: number;
+    presupuesto_disponible: number;
+    pagos_deuda: number;
+    ahorros_inversiones: number;
+    dinero_disponible: number;
+    utilidad: number;
+    estado_presupuesto: 'dentro' | 'excedido';
+};
+
 export type PaginatedData<T> = {
     data: T[];
     current_page: number;
