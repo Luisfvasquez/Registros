@@ -21,7 +21,7 @@ Schedule::command('exchange:update-usd')
     });
 
 Schedule::command('exchange:update-usd')
-    ->dailyAt('14:05') // 2:05 PM
+    ->dailyAt('09:05') // 9:05 AM
     ->timezone('America/Caracas')
     ->withoutOverlapping()
     ->onSuccess(function () {
