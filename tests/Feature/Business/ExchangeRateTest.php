@@ -23,9 +23,8 @@ class ExchangeRateTest extends TestCase
         ]);
 
         Http::fake([
-            've.dolarapi.com/*' => Http::response([
-                ['moneda' => 'USD', 'promedio' => 190.5, 'fechaActualizacion' => now()->toIso8601String()],
-                ['moneda' => 'EUR', 'promedio' => 200.1, 'fechaActualizacion' => now()->toIso8601String()],
+            'rates.dolarvzla.com/*' => Http::response([
+                'current' => ['date' => now()->toDateString(), 'usd' => 190.5, 'eur' => 200.1],
             ]),
         ]);
 
@@ -43,8 +42,8 @@ class ExchangeRateTest extends TestCase
     public function test_the_update_command_fails_gracefully_when_usd_is_missing()
     {
         Http::fake([
-            've.dolarapi.com/*' => Http::response([
-                ['moneda' => 'EUR', 'promedio' => 200.1, 'fechaActualizacion' => now()->toIso8601String()],
+            'rates.dolarvzla.com/*' => Http::response([
+                'current' => ['date' => now()->toDateString(), 'eur' => 200.1],
             ]),
         ]);
 
@@ -72,8 +71,8 @@ class ExchangeRateTest extends TestCase
         $user = User::factory()->create();
 
         Http::fake([
-            've.dolarapi.com/*' => Http::response([
-                ['moneda' => 'USD', 'promedio' => 195, 'fechaActualizacion' => now()->toIso8601String()],
+            'rates.dolarvzla.com/*' => Http::response([
+                'current' => ['date' => now()->toDateString(), 'usd' => 195, 'eur' => 200.1],
             ]),
         ]);
 

@@ -30,3 +30,13 @@ Schedule::command('exchange:update-usd')
     ->onFailure(function () {
         Log::info('No se pudo actualizar la tasa de cambio');
     });
+Schedule::command('exchange:update-usd')
+    ->dailyAt('17:05') // 5:05 PM
+    ->timezone('America/Caracas')
+    ->withoutOverlapping()
+    ->onSuccess(function () {
+        Log::info('Tasa de cambio actualizada correctamente');
+    })
+    ->onFailure(function () {
+        Log::info('No se pudo actualizar la tasa de cambio');
+    });

@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 #[Signature('exchange:update-usd')]
-#[Description('Consulta la API de dolarapi.com, actualiza la base de datos y la caché')]
+#[Description('Consulta la API de rates.dolarvzla.com, actualiza la base de datos y la caché')]
 class UpdateExchangeRate extends Command
 {
     /**
@@ -21,17 +21,17 @@ class UpdateExchangeRate extends Command
     public function handle(): int
     {
         try {
-            $response = Http::timeout(10)->get('https://ve.dolarapi.com/v1/cotizaciones');
+            $response = Http::timeout(10)->get('https://rates.dolarvzla.com/bcv/current.json');
 
             if ($response->successful()) {
-                /** @var array<int, array<string, mixed>> $data */
+                /** @var array<string, mixed> $data */
                 $data = $response->json();
 
-                $usdData = collect($data)->firstWhere('moneda', 'USD');
+                $currentData = $data['current'] ?? null;
 
-                if ($usdData && isset($usdData['promedio'])) {
-                    $rate = $usdData['promedio'];
-                    $date = Carbon::parse($usdData['fechaActualizacion'])->format('Y-m-d');
+                if ($currentData && isset($currentData['usd'])) {
+                    $rate = $currentData['usd'];
+                    $date = Carbon::parse($currentData['date'])->format('Y-m-d');
 
                     DB::transaction(function () use ($rate, $date) {
                         ExchangeRate::where('is_active', true)->update(['is_active' => false]);
@@ -53,7 +53,7 @@ class UpdateExchangeRate extends Command
                 }
             }
 
-            $this->error('La API respondió, pero no se encontró la moneda USD.');
+            $this->error('La API respondió, pero no se encontró la tasa USD.');
 
             return Command::FAILURE;
         } catch (\Exception $e) {
