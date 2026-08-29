@@ -8,15 +8,19 @@ php artisan down --refresh=15 --secret="deploy-bypass-token" || true
 
 # 2. Descargar últimos cambios de Git
 echo "📥 Obteniendo cambios del repositorio..."
-git pull origin main
+git fetch origin main
+git reset --hard origin/main
 
 # 3. Instalar/actualizar dependencias de Composer (sin dev y optimizadas)
 echo "📦 Instalando dependencias de PHP..."
 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
-# 4. Instalar dependencias de Node y compilar assets de Vue
+echo "🧭 Generando acciones de Laravel Wayfinder..."
+php artisan wayfinder:generate || true
+
+# 4. Compilar Frontend (Node / Vite / Vue)
 echo "⚡ Compilando assets de Vue/Vite..."
-npm ci || npm install
+npm install --no-save
 npm run build
 
 # 5. Ejecutar migraciones pendientes de base de datos
