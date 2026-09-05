@@ -4,7 +4,14 @@ import { computed } from 'vue';
 import type { BudgetLine, BudgetSection } from '@/types';
 import { formatMoney } from './lib';
 
-type ColumnType = 'text' | 'autocomplete' | 'money' | 'percent' | 'check';
+type ColumnType =
+    | 'text'
+    | 'autocomplete'
+    | 'date'
+    | 'select'
+    | 'money'
+    | 'number'
+    | 'computed';
 
 export type GridColumn = {
     field: keyof BudgetLine;
@@ -12,12 +19,17 @@ export type GridColumn = {
     type: ColumnType;
     /** Shown as a native tooltip on hover, on the header and on each cell. */
     hint?: string;
+    /** Datalist id for `autocomplete` columns. */
     list?: string;
+    /** Fixed choices for `select` columns. */
+    options?: string[];
+    /** Read-only value for `computed` columns (e.g. precio total). */
+    compute?: (row: BudgetLine) => number;
     total?: boolean;
     width?: string;
 };
 
-export type Accent = 'emerald' | 'violet' | 'rose' | 'sky' | 'amber' | 'slate';
+export type Accent = 'pink' | 'peach' | 'sky' | 'lavender' | 'slate';
 
 const props = withDefaults(
     defineProps<{
@@ -41,67 +53,53 @@ const emit = defineEmits<{
 
 /**
  * Full class strings per accent so Tailwind's scanner keeps them in the build.
+ * Soft pastel palette: rosados, color piel y azules claros.
  */
 const ACCENTS: Record<Accent, Record<string, string>> = {
-    emerald: {
-        card: 'border-l-emerald-400 dark:border-l-emerald-500',
-        head: 'bg-emerald-100/70 text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-50',
-        badge: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-        btn: 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70',
-        rowHover: 'hover:bg-emerald-50 dark:hover:bg-emerald-950/20',
-        focus: 'focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/25 dark:focus:border-emerald-500',
-        totals: 'bg-emerald-100/80 text-emerald-950 dark:bg-emerald-950/50 dark:text-emerald-50',
-        check: 'accent-emerald-600',
+    pink: {
+        card: 'border-l-pink-300 dark:border-l-pink-400',
+        head: 'bg-pink-100 text-pink-900 dark:bg-pink-950/40 dark:text-pink-50',
+        badge: 'bg-pink-400/20 text-pink-700 dark:text-pink-200',
+        btn: 'border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100 dark:border-pink-800 dark:bg-pink-950/40 dark:text-pink-200 dark:hover:bg-pink-950/70',
+        rowHover: 'hover:bg-pink-50 dark:hover:bg-pink-950/20',
+        focus: 'focus:border-pink-400 focus:ring-2 focus:ring-pink-400/30 dark:focus:border-pink-500',
+        totals: 'bg-pink-100 text-pink-900 dark:bg-pink-950/50 dark:text-pink-50',
     },
-    violet: {
-        card: 'border-l-violet-400 dark:border-l-violet-500',
-        head: 'bg-violet-100/70 text-violet-950 dark:bg-violet-950/40 dark:text-violet-50',
-        badge: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
-        btn: 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300 dark:hover:bg-violet-950/70',
-        rowHover: 'hover:bg-violet-50 dark:hover:bg-violet-950/20',
-        focus: 'focus:border-violet-400 focus:ring-2 focus:ring-violet-500/25 dark:focus:border-violet-500',
-        totals: 'bg-violet-100/80 text-violet-950 dark:bg-violet-950/50 dark:text-violet-50',
-        check: 'accent-violet-600',
-    },
-    rose: {
-        card: 'border-l-rose-400 dark:border-l-rose-500',
-        head: 'bg-rose-100/70 text-rose-950 dark:bg-rose-950/40 dark:text-rose-50',
-        badge: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
-        btn: 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/70',
-        rowHover: 'hover:bg-rose-50 dark:hover:bg-rose-950/20',
-        focus: 'focus:border-rose-400 focus:ring-2 focus:ring-rose-500/25 dark:focus:border-rose-500',
-        totals: 'bg-rose-100/80 text-rose-950 dark:bg-rose-950/50 dark:text-rose-50',
-        check: 'accent-rose-600',
+    peach: {
+        card: 'border-l-orange-300 dark:border-l-orange-400',
+        head: 'bg-orange-100 text-orange-900 dark:bg-orange-950/40 dark:text-orange-50',
+        badge: 'bg-orange-400/20 text-orange-700 dark:text-orange-200',
+        btn: 'border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200 dark:hover:bg-orange-950/70',
+        rowHover: 'hover:bg-orange-50 dark:hover:bg-orange-950/20',
+        focus: 'focus:border-orange-300 focus:ring-2 focus:ring-orange-300/30 dark:focus:border-orange-500',
+        totals: 'bg-orange-100 text-orange-900 dark:bg-orange-950/50 dark:text-orange-50',
     },
     sky: {
-        card: 'border-l-sky-400 dark:border-l-sky-500',
-        head: 'bg-sky-100/70 text-sky-950 dark:bg-sky-950/40 dark:text-sky-50',
-        badge: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
-        btn: 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-950/70',
+        card: 'border-l-sky-300 dark:border-l-sky-400',
+        head: 'bg-sky-100 text-sky-900 dark:bg-sky-950/40 dark:text-sky-50',
+        badge: 'bg-sky-400/20 text-sky-700 dark:text-sky-200',
+        btn: 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70',
         rowHover: 'hover:bg-sky-50 dark:hover:bg-sky-950/20',
-        focus: 'focus:border-sky-400 focus:ring-2 focus:ring-sky-500/25 dark:focus:border-sky-500',
-        totals: 'bg-sky-100/80 text-sky-950 dark:bg-sky-950/50 dark:text-sky-50',
-        check: 'accent-sky-600',
+        focus: 'focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30 dark:focus:border-sky-500',
+        totals: 'bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-50',
     },
-    amber: {
-        card: 'border-l-amber-400 dark:border-l-amber-500',
-        head: 'bg-amber-100/70 text-amber-950 dark:bg-amber-950/40 dark:text-amber-50',
-        badge: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-        btn: 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70',
-        rowHover: 'hover:bg-amber-50 dark:hover:bg-amber-950/20',
-        focus: 'focus:border-amber-400 focus:ring-2 focus:ring-amber-500/25 dark:focus:border-amber-500',
-        totals: 'bg-amber-100/80 text-amber-950 dark:bg-amber-950/50 dark:text-amber-50',
-        check: 'accent-amber-600',
+    lavender: {
+        card: 'border-l-indigo-200 dark:border-l-indigo-400',
+        head: 'bg-indigo-100 text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-50',
+        badge: 'bg-indigo-400/20 text-indigo-700 dark:text-indigo-200',
+        btn: 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/70',
+        rowHover: 'hover:bg-indigo-50 dark:hover:bg-indigo-950/20',
+        focus: 'focus:border-indigo-300 focus:ring-2 focus:ring-indigo-300/30 dark:focus:border-indigo-500',
+        totals: 'bg-indigo-100 text-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-50',
     },
     slate: {
-        card: 'border-l-slate-400 dark:border-l-slate-500',
+        card: 'border-l-slate-300 dark:border-l-slate-500',
         head: 'bg-slate-100 text-slate-900 dark:bg-slate-800/60 dark:text-slate-50',
-        badge: 'bg-slate-500/15 text-slate-700 dark:text-slate-300',
+        badge: 'bg-slate-400/20 text-slate-700 dark:text-slate-200',
         btn: 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800',
         rowHover: 'hover:bg-slate-50 dark:hover:bg-slate-800/30',
-        focus: 'focus:border-slate-400 focus:ring-2 focus:ring-slate-500/25 dark:focus:border-slate-500',
+        focus: 'focus:border-slate-400 focus:ring-2 focus:ring-slate-400/25 dark:focus:border-slate-500',
         totals: 'bg-slate-100 text-slate-900 dark:bg-slate-800/70 dark:text-slate-50',
-        check: 'accent-slate-600',
     },
 };
 
@@ -122,13 +120,18 @@ const gridTemplate = computed(() => {
     return `${cols} 2rem`;
 });
 
+const cellValue = (line: BudgetLine, column: GridColumn): number =>
+    column.type === 'computed' && column.compute
+        ? column.compute(line)
+        : num(line[column.field] as string);
+
 const totals = computed(() => {
     const result: Record<string, number> = {};
 
     for (const column of props.columns) {
         if (column.total) {
             result[column.field] = props.rows.reduce(
-                (sum, row) => sum + num(row[column.field] as string),
+                (sum, row) => sum + cellValue(row, column),
                 0,
             );
         }
@@ -137,22 +140,10 @@ const totals = computed(() => {
     return result;
 });
 
-const hasPlanActual = computed(
-    () =>
-        props.columns.some((c) => c.field === 'planned' && c.total) &&
-        props.columns.some((c) => c.field === 'actual' && c.total),
-);
-
-/** For income, spending more than planned is good; for everything else it's bad. */
-const delta = computed(() => {
-    const planned = totals.value.planned ?? 0;
-    const actual = totals.value.actual ?? 0;
-
-    return props.section === 'ingreso' ? actual - planned : planned - actual;
-});
-
 function align(column: GridColumn): string {
-    return column.type === 'money' || column.type === 'percent'
+    return column.type === 'money' ||
+        column.type === 'number' ||
+        column.type === 'computed'
         ? 'justify-end text-right'
         : '';
 }
@@ -167,12 +158,6 @@ function onNumber(line: BudgetLine, field: keyof BudgetLine, event: Event) {
     const raw = (event.target as HTMLInputElement).value;
 
     emit('update', line, { [field]: raw === '' ? null : Number(raw) });
-}
-
-function onCheck(line: BudgetLine, field: keyof BudgetLine, event: Event) {
-    emit('update', line, {
-        [field]: (event.target as HTMLInputElement).checked,
-    });
 }
 </script>
 
@@ -195,19 +180,6 @@ function onCheck(line: BudgetLine, field: keyof BudgetLine, event: Event) {
             <p v-if="description" class="text-[11px] opacity-70">
                 {{ description }}
             </p>
-
-            <span
-                v-if="hasPlanActual && rows.length > 0"
-                class="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
-                :class="
-                    delta >= 0
-                        ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200'
-                        : 'bg-rose-500/20 text-rose-800 dark:text-rose-200'
-                "
-            >
-                {{ delta >= 0 ? '▲ A favor' : '▼ Excedido' }}
-                {{ formatMoney(Math.abs(delta), currency) }}
-            </span>
 
             <button
                 v-if="!readonly"
@@ -295,14 +267,46 @@ function onCheck(line: BudgetLine, field: keyof BudgetLine, event: Event) {
                             @change="onText(line, column.field, $event)"
                         />
                         <input
+                            v-else-if="column.type === 'date'"
+                            type="date"
+                            :value="
+                                ((line[column.field] as string) ?? '').slice(
+                                    0,
+                                    10,
+                                )
+                            "
+                            :disabled="readonly"
+                            :title="column.hint"
+                            class="h-7 w-full rounded-md border border-transparent bg-transparent px-2 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950"
+                            :class="a.focus"
+                            @change="onText(line, column.field, $event)"
+                        />
+                        <select
+                            v-else-if="column.type === 'select'"
+                            :value="(line[column.field] as string) ?? ''"
+                            :disabled="readonly"
+                            :title="column.hint"
+                            class="h-7 w-full rounded-md border border-transparent bg-transparent px-1 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950 [&>option]:text-neutral-900"
+                            :class="a.focus"
+                            @change="onText(line, column.field, $event)"
+                        >
+                            <option value="">—</option>
+                            <option
+                                v-for="opt in column.options"
+                                :key="opt"
+                                :value="opt"
+                            >
+                                {{ opt }}
+                            </option>
+                        </select>
+                        <input
                             v-else-if="
                                 column.type === 'money' ||
-                                column.type === 'percent'
+                                column.type === 'number'
                             "
                             type="number"
-                            step="0.01"
-                            :min="column.type === 'percent' ? 0 : undefined"
-                            :max="column.type === 'percent' ? 100 : undefined"
+                            :step="column.type === 'money' ? '0.01' : 'any'"
+                            min="0"
                             :value="(line[column.field] as string) ?? ''"
                             :disabled="readonly"
                             :title="column.hint"
@@ -310,16 +314,18 @@ function onCheck(line: BudgetLine, field: keyof BudgetLine, event: Event) {
                             :class="a.focus"
                             @change="onNumber(line, column.field, $event)"
                         />
-                        <input
-                            v-else-if="column.type === 'check'"
-                            type="checkbox"
-                            :checked="Boolean(line[column.field])"
-                            :disabled="readonly"
+                        <span
+                            v-else-if="column.type === 'computed'"
                             :title="column.hint"
-                            class="size-4"
-                            :class="a.check"
-                            @change="onCheck(line, column.field, $event)"
-                        />
+                            class="w-full px-2 text-right font-semibold text-neutral-700 tabular-nums dark:text-neutral-300"
+                        >
+                            {{
+                                formatMoney(
+                                    column.compute ? column.compute(line) : 0,
+                                    currency,
+                                )
+                            }}
+                        </span>
                     </div>
                     <div class="flex justify-center">
                         <button
@@ -354,14 +360,7 @@ function onCheck(line: BudgetLine, field: keyof BudgetLine, event: Event) {
                             Totales
                         </span>
                         <template v-if="column.total">
-                            {{
-                                column.type === 'percent'
-                                    ? `${totals[column.field].toFixed(1)}%`
-                                    : formatMoney(
-                                          totals[column.field],
-                                          currency,
-                                      )
-                            }}
+                            {{ formatMoney(totals[column.field], currency) }}
                         </template>
                     </div>
                     <div></div>

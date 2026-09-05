@@ -50,60 +50,62 @@ class BudgetPeriod extends Model
      * period's lines so the numbers stay consistent no matter how they're edited.
      *
      * @return array{
-     *     ingreso_total: float,
-     *     ingreso_proyectado: float,
-     *     ganancias_inesperadas: float,
-     *     gastos_totales: float,
-     *     presupuesto_total: float,
-     *     presupuesto_disponible: float,
-     *     pagos_deuda: float,
-     *     ahorros_inversiones: float,
-     *     dinero_disponible: float,
-     *     utilidad: float,
-     *     estado_presupuesto: string
+     *     total_compras: float,
+     *     total_ventas: float,
+     *     total_clientes: float,
+     *     ingresos_totales: float,
+     *     cuentas_por_pagar: float,
+     *     cuentas_por_cobrar: float,
+     *     ganancia_bruta: float,
+     *     ganancia_registrada: float,
+     *     gastos_personales: float,
+     *     perdidas_mercancia: float,
+     *     inversiones: float,
+     *     utilidad_neta: float,
+     *     estado: string
      * }
      */
     public function summary(): array
     {
         $lines = $this->relationLoaded('lines') ? $this->lines : $this->lines()->get();
 
-        $sumActual = fn (array $sections) => (float) $lines
-            ->whereIn('section', $sections)
-            ->sum('actual');
+        $inSection = fn (string $section) => $lines->where('section', $section);
 
-        $ingresoTotal = $sumActual([BudgetLine::SECTION_INCOME]);
-        $ingresoProyectado = (float) $lines->where('section', BudgetLine::SECTION_INCOME)->sum('planned');
-        $gananciasInesperadas = (float) $lines
-            ->where('section', BudgetLine::SECTION_INCOME)
-            ->where('is_unexpected', true)
-            ->sum('actual');
+        $isPaid = fn (BudgetLine $line): bool => strtolower(trim((string) $line->payment_status)) === 'pagado';
 
-        $gastosTotales = $sumActual([BudgetLine::SECTION_BUDGET, BudgetLine::SECTION_FIXED_EXPENSE]);
-        $presupuestoTotal = (float) $lines
-            ->whereIn('section', [BudgetLine::SECTION_BUDGET, BudgetLine::SECTION_FIXED_EXPENSE])
-            ->sum('planned');
+        $totalCompras = (float) $inSection(BudgetLine::SECTION_PURCHASE)->sum('precio_total');
+        $totalVentas = (float) $inSection(BudgetLine::SECTION_SALE)->sum('precio_total');
+        $totalClientes = (float) $inSection(BudgetLine::SECTION_CLIENT)->sum('precio_total');
+        $ingresosTotales = $totalVentas + $totalClientes;
 
-        $pagosDeuda = $sumActual([BudgetLine::SECTION_DEBT]);
-        $ahorrosInversiones = $sumActual([BudgetLine::SECTION_SAVING]);
+        $cuentasPorPagar = (float) $inSection(BudgetLine::SECTION_PURCHASE)
+            ->reject($isPaid)
+            ->sum('precio_total');
+        $cuentasPorCobrar = (float) $inSection(BudgetLine::SECTION_CLIENT)
+            ->reject($isPaid)
+            ->sum('precio_total');
 
-        $dineroDisponible = (float) $this->available_money
-            + $ingresoTotal
-            - $gastosTotales
-            - $pagosDeuda
-            - $ahorrosInversiones;
+        $resultado = $inSection(BudgetLine::SECTION_RESULT);
+        $gananciaRegistrada = (float) $resultado->sum('ganancia');
+        $gastosPersonales = (float) $resultado->sum('gastos_personales');
+        $perdidasMercancia = (float) $resultado->sum('perdidas_mercancia');
+        $inversiones = (float) $resultado->sum('inversiones');
+        $utilidadNeta = (float) $resultado->sum('total_utilidad');
 
         return [
-            'ingreso_total' => round($ingresoTotal, 2),
-            'ingreso_proyectado' => round($ingresoProyectado, 2),
-            'ganancias_inesperadas' => round($gananciasInesperadas, 2),
-            'gastos_totales' => round($gastosTotales, 2),
-            'presupuesto_total' => round($presupuestoTotal, 2),
-            'presupuesto_disponible' => round($presupuestoTotal - $gastosTotales, 2),
-            'pagos_deuda' => round($pagosDeuda, 2),
-            'ahorros_inversiones' => round($ahorrosInversiones, 2),
-            'dinero_disponible' => round($dineroDisponible, 2),
-            'utilidad' => round($ingresoTotal - $gastosTotales - $pagosDeuda, 2),
-            'estado_presupuesto' => $gastosTotales > $presupuestoTotal ? 'excedido' : 'dentro',
+            'total_compras' => round($totalCompras, 2),
+            'total_ventas' => round($totalVentas, 2),
+            'total_clientes' => round($totalClientes, 2),
+            'ingresos_totales' => round($ingresosTotales, 2),
+            'cuentas_por_pagar' => round($cuentasPorPagar, 2),
+            'cuentas_por_cobrar' => round($cuentasPorCobrar, 2),
+            'ganancia_bruta' => round($ingresosTotales - $totalCompras, 2),
+            'ganancia_registrada' => round($gananciaRegistrada, 2),
+            'gastos_personales' => round($gastosPersonales, 2),
+            'perdidas_mercancia' => round($perdidasMercancia, 2),
+            'inversiones' => round($inversiones, 2),
+            'utilidad_neta' => round($utilidadNeta, 2),
+            'estado' => $utilidadNeta >= 0 ? 'ganancia' : 'perdida',
         ];
     }
 }

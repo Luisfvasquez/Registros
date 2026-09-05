@@ -99,8 +99,7 @@ export type Document = {
     updated_at: string;
 };
 
-export type BudgetSection =
-    'ingreso' | 'presupuesto' | 'gasto_fijo' | 'ahorro' | 'deuda';
+export type BudgetSection = 'compra' | 'venta' | 'cliente' | 'resultado';
 
 export type BudgetPeriodStatus = 'abierto' | 'cerrado';
 
@@ -125,30 +124,40 @@ export type BudgetLine = {
     id: number;
     budget_period_id: number;
     section: BudgetSection;
-    detail: string;
-    category: string | null;
+    fecha: string | null;
+    party_name: string | null;
+    producto: string | null;
+    cantidad: string | null;
+    unit_price: string | null;
+    payment_status: string | null;
     payment_method: string | null;
-    ideal_percent: string | null;
-    planned: string;
-    actual: string;
-    is_unexpected: boolean;
+    ganancia: string | null;
+    gastos_personales: string | null;
+    perdidas_mercancia: string | null;
+    inversiones: string | null;
+    /** Calculado en el servidor: cantidad × precio unitario. */
+    precio_total: number;
+    /** Calculado en el servidor: ganancia − gastos − pérdidas − inversiones. */
+    total_utilidad: number;
     position: number;
     created_at: string;
     updated_at: string;
 };
 
 export type BudgetSummary = {
-    ingreso_total: number;
-    ingreso_proyectado: number;
-    ganancias_inesperadas: number;
-    gastos_totales: number;
-    presupuesto_total: number;
-    presupuesto_disponible: number;
-    pagos_deuda: number;
-    ahorros_inversiones: number;
-    dinero_disponible: number;
-    utilidad: number;
-    estado_presupuesto: 'dentro' | 'excedido';
+    total_compras: number;
+    total_ventas: number;
+    total_clientes: number;
+    ingresos_totales: number;
+    cuentas_por_pagar: number;
+    cuentas_por_cobrar: number;
+    ganancia_bruta: number;
+    ganancia_registrada: number;
+    gastos_personales: number;
+    perdidas_mercancia: number;
+    inversiones: number;
+    utilidad_neta: number;
+    estado: 'ganancia' | 'perdida';
 };
 
 export type PaginatedData<T> = {

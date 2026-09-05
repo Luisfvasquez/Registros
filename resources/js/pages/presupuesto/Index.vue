@@ -25,7 +25,15 @@ import type {
     BudgetSummary,
 } from '@/types';
 import BudgetCharts from './BudgetCharts.vue';
-import { api, computeSummary, firstError, MONTHS, periodLabel } from './lib';
+import {
+    api,
+    computeSummary,
+    firstError,
+    lineTotal,
+    lineUtilidad,
+    MONTHS,
+    periodLabel,
+} from './lib';
 import ReportPanel from './ReportPanel.vue';
 import SectionGrid from './SectionGrid.vue';
 import type { Accent, GridColumn } from './SectionGrid.vue';
@@ -35,7 +43,12 @@ const props = defineProps<{
     period: BudgetPeriod | null;
     lines: BudgetLine[];
     summary: BudgetSummary | null;
-    suggestions: { categories: string[]; payment_methods: string[] };
+    suggestions: {
+        parties: string[];
+        productos: string[];
+        payment_methods: string[];
+        payment_statuses: string[];
+    };
 }>();
 
 const lines = ref<BudgetLine[]>(props.lines.map((line) => ({ ...line })));
@@ -53,156 +66,219 @@ watch(
 
 const readonly = computed(() => periodState.value?.status === 'cerrado');
 
-const liveSummary = computed<BudgetSummary>(() =>
-    computeSummary(lines.value, periodState.value?.available_money ?? 0),
-);
+const liveSummary = computed<BudgetSummary>(() => computeSummary(lines.value));
 
 const tabs = [
     { key: 'general', label: 'Vista general' },
     { key: 'resumen', label: 'Resumen' },
-    { key: 'ingresos', label: 'Ingresos' },
-    { key: 'presupuesto', label: 'Presupuesto por fecha' },
-    { key: 'gastos_fijos', label: 'Gastos fijos' },
-    { key: 'ahorros', label: 'Ahorros' },
-    { key: 'deudas', label: 'Estado de deudas' },
+    { key: 'compras', label: 'Compras' },
+    { key: 'ventas', label: 'Ventas' },
+    { key: 'clientes', label: 'Relación clientes' },
+    { key: 'resultados', label: 'Ganancias y pérdidas' },
     { key: 'graficos', label: 'Gráficos' },
 ] as const;
 
 const activeTab = ref<(typeof tabs)[number]['key']>('general');
 
+const PAYMENT_STATUSES = ['Pagado', 'Pendiente', 'Abonado'];
+const PAYMENT_METHODS = [
+    'Efectivo',
+    'Transferencia',
+    'Pago móvil',
+    'Tarjeta',
+    'Zelle',
+    'Divisas',
+];
+
 function linesFor(section: BudgetSection): BudgetLine[] {
     return lines.value.filter((line) => line.section === section);
 }
 
-const incomeColumns: GridColumn[] = [
+const dateColumn: GridColumn = {
+    field: 'fecha',
+    label: 'Fecha',
+    type: 'date',
+    width: '135px',
+};
+
+const purchaseColumns: GridColumn[] = [
+    dateColumn,
     {
-        field: 'detail',
-        label: 'Detalle de ingreso',
-        type: 'text',
-        width: '40%',
-        hint: 'Nombre o descripción del ingreso: sueldo, freelance, alquiler cobrado, venta puntual…',
+        field: 'party_name',
+        label: 'Proveedor',
+        type: 'autocomplete',
+        list: 'budget-parties',
+        width: '16%',
+        hint: 'Nombre del proveedor al que se le compró la mercancía.',
     },
     {
-        field: 'planned',
-        label: 'Proyección',
+        field: 'producto',
+        label: 'Producto',
+        type: 'autocomplete',
+        list: 'budget-productos',
+        width: '16%',
+        hint: 'Producto o mercancía comprada.',
+    },
+    {
+        field: 'cantidad',
+        label: 'Cantidad',
+        type: 'number',
+        width: '95px',
+        hint: 'Unidades compradas.',
+    },
+    {
+        field: 'unit_price',
+        label: 'Precio unitario',
         type: 'money',
-        total: true,
-        hint: 'Monto que esperás recibir este mes por este concepto.',
+        hint: 'Precio pagado por unidad.',
     },
     {
-        field: 'actual',
-        label: 'Ingreso real',
-        type: 'money',
+        field: 'precio_total',
+        label: 'Precio total',
+        type: 'computed',
+        compute: lineTotal,
         total: true,
-        hint: 'Monto efectivamente recibido este mes.',
+        hint: 'Cantidad × precio unitario. Se calcula solo.',
     },
     {
-        field: 'is_unexpected',
-        label: 'Inesperado',
-        type: 'check',
-        width: '90px',
-        hint: 'Marcá si es una ganancia no planificada: trabajo extra, bono, regalo, venta ocasional.',
+        field: 'payment_status',
+        label: 'Estado de pago',
+        type: 'select',
+        options: PAYMENT_STATUSES,
+        width: '130px',
+        hint: 'Si la compra ya se pagó al proveedor o queda pendiente.',
     },
 ];
 
-const budgetColumns: GridColumn[] = [
+const saleColumns: GridColumn[] = [
+    dateColumn,
     {
-        field: 'category',
-        label: 'Categoría',
+        field: 'cantidad',
+        label: 'Cantidad',
+        type: 'number',
+        width: '95px',
+        hint: 'Unidades vendidas.',
+    },
+    {
+        field: 'producto',
+        label: 'Producto',
         type: 'autocomplete',
-        list: 'budget-cats',
-        width: '24%',
-        hint: 'Rubro del gasto: Comida, Servicios, Transporte, Salud…',
+        list: 'budget-productos',
+        width: '18%',
+        hint: 'Producto vendido.',
     },
     {
-        field: 'ideal_percent',
-        label: '% ideal',
-        type: 'percent',
-        total: true,
-        hint: 'Porcentaje ideal de tus ingresos que querés destinar a esta categoría.',
-    },
-    {
-        field: 'planned',
-        label: 'Presupuesto',
+        field: 'unit_price',
+        label: 'Precio unitario',
         type: 'money',
-        total: true,
-        hint: 'Monto máximo que planeás gastar en esta categoría este mes.',
+        hint: 'Precio de venta por unidad.',
     },
     {
-        field: 'actual',
-        label: 'Gastado',
-        type: 'money',
+        field: 'precio_total',
+        label: 'Precio total',
+        type: 'computed',
+        compute: lineTotal,
         total: true,
-        hint: 'Monto realmente gastado en esta categoría hasta ahora.',
+        hint: 'Cantidad × precio unitario. Se calcula solo.',
     },
     {
         field: 'payment_method',
-        label: 'Medio de pago',
-        type: 'autocomplete',
-        list: 'budget-pms',
-        hint: 'Forma de pago usada: efectivo, débito, crédito, transferencia…',
+        label: 'Método de pago',
+        type: 'select',
+        options: PAYMENT_METHODS,
+        width: '140px',
+        hint: 'Forma en que el cliente pagó la venta.',
     },
 ];
 
-const detailColumns = (hints: {
-    detail: string;
-    planned: string;
-    actual: string;
-}): GridColumn[] => [
+const clientColumns: GridColumn[] = [
+    dateColumn,
     {
-        field: 'detail',
-        label: 'Detalle',
-        type: 'text',
-        width: '26%',
-        hint: hints.detail,
-    },
-    {
-        field: 'category',
-        label: 'Categoría',
+        field: 'party_name',
+        label: 'Cliente',
         type: 'autocomplete',
-        list: 'budget-cats',
-        hint: 'Rubro al que pertenece este ítem.',
+        list: 'budget-parties',
+        width: '16%',
+        hint: 'Nombre del cliente.',
     },
     {
-        field: 'planned',
-        label: 'Presupuesto',
-        type: 'money',
-        total: true,
-        hint: hints.planned,
-    },
-    {
-        field: 'actual',
-        label: 'Gastado',
-        type: 'money',
-        total: true,
-        hint: hints.actual,
-    },
-    {
-        field: 'payment_method',
-        label: 'Medio de pago',
+        field: 'producto',
+        label: 'Producto',
         type: 'autocomplete',
-        list: 'budget-pms',
-        hint: 'Forma de pago usada: efectivo, débito, crédito, transferencia…',
+        list: 'budget-productos',
+        width: '16%',
+        hint: 'Producto entregado al cliente.',
+    },
+    {
+        field: 'cantidad',
+        label: 'Cantidad',
+        type: 'number',
+        width: '95px',
+        hint: 'Unidades entregadas.',
+    },
+    {
+        field: 'unit_price',
+        label: 'Precio unitario',
+        type: 'money',
+        hint: 'Precio acordado por unidad.',
+    },
+    {
+        field: 'precio_total',
+        label: 'Precio total',
+        type: 'computed',
+        compute: lineTotal,
+        total: true,
+        hint: 'Cantidad × precio unitario. Se calcula solo.',
+    },
+    {
+        field: 'payment_status',
+        label: 'Estado del pago',
+        type: 'select',
+        options: PAYMENT_STATUSES,
+        width: '130px',
+        hint: 'Si el cliente ya pagó, abonó o está pendiente.',
     },
 ];
 
-const fixedExpenseColumns = detailColumns({
-    detail: 'Nombre del gasto fijo: alquiler, servicios, suscripciones, colegio…',
-    planned: 'Monto previsto para este gasto este mes.',
-    actual: 'Monto efectivamente pagado este mes.',
-});
-
-const savingColumns = detailColumns({
-    detail: 'Nombre de la meta de ahorro o inversión: fondo de emergencia, jubilación…',
-    planned: 'Monto que planeás destinar este mes a este ahorro o inversión.',
-    actual: 'Monto efectivamente aportado este mes.',
-});
-
-const debtColumns = detailColumns({
-    detail: 'Nombre de la deuda: préstamo personal, tarjeta de crédito, financiación…',
-    planned: 'Cuota o monto previsto a pagar este mes.',
-    actual: 'Monto efectivamente abonado este mes.',
-});
+const resultColumns: GridColumn[] = [
+    dateColumn,
+    {
+        field: 'ganancia',
+        label: 'Ganancia',
+        type: 'money',
+        total: true,
+        hint: 'Ganancia bruta obtenida en la fecha.',
+    },
+    {
+        field: 'gastos_personales',
+        label: 'Gastos personales',
+        type: 'money',
+        total: true,
+        hint: 'Dinero del negocio usado en gastos personales.',
+    },
+    {
+        field: 'perdidas_mercancia',
+        label: 'Pérdidas por mercancía mala',
+        type: 'money',
+        total: true,
+        hint: 'Valor de la mercancía dañada, vencida o no vendible.',
+    },
+    {
+        field: 'inversiones',
+        label: 'Inversiones',
+        type: 'money',
+        total: true,
+        hint: 'Dinero reinvertido en el negocio.',
+    },
+    {
+        field: 'total_utilidad',
+        label: 'Total utilidad',
+        type: 'computed',
+        compute: lineUtilidad,
+        total: true,
+        hint: 'Ganancia − gastos personales − pérdidas − inversiones. Se calcula solo.',
+    },
+];
 
 /**
  * Every module in one place. Reused for the individual section tabs and for the
@@ -210,46 +286,36 @@ const debtColumns = detailColumns({
  */
 const sectionDefs = [
     {
-        tab: 'ingresos',
-        title: 'Ingresos',
-        description:
-            'Proyección vs. ingreso real. Marcá los trabajos no esperados como inesperados.',
-        section: 'ingreso',
-        columns: incomeColumns,
-        accent: 'emerald',
+        tab: 'compras',
+        title: 'Compras',
+        description: 'Mercancía comprada a proveedores.',
+        section: 'compra',
+        columns: purchaseColumns,
+        accent: 'peach',
     },
     {
-        tab: 'presupuesto',
-        title: 'Presupuesto por fecha',
-        description:
-            'Distribución ideal por categoría y lo efectivamente gastado.',
-        section: 'presupuesto',
-        columns: budgetColumns,
-        accent: 'violet',
-    },
-    {
-        tab: 'gastos_fijos',
-        title: 'Gastos fijos',
-        description: 'Compromisos recurrentes del mes.',
-        section: 'gasto_fijo',
-        columns: fixedExpenseColumns,
-        accent: 'rose',
-    },
-    {
-        tab: 'ahorros',
-        title: 'Ahorros',
-        description: 'Metas de ahorro e inversión y su avance.',
-        section: 'ahorro',
-        columns: savingColumns,
+        tab: 'ventas',
+        title: 'Ventas',
+        description: 'Ventas del período y su forma de cobro.',
+        section: 'venta',
+        columns: saleColumns,
         accent: 'sky',
     },
     {
-        tab: 'deudas',
-        title: 'Estado de deudas',
-        description: 'Deudas pendientes y lo abonado en el período.',
-        section: 'deuda',
-        columns: debtColumns,
-        accent: 'amber',
+        tab: 'clientes',
+        title: 'Relación con clientes',
+        description: 'Ventas a clientes y estado de pago de cada una.',
+        section: 'cliente',
+        columns: clientColumns,
+        accent: 'pink',
+    },
+    {
+        tab: 'resultados',
+        title: 'Ganancias, gastos y pérdidas',
+        description: 'Cierre mensual: ganancia, gastos, pérdidas y utilidad.',
+        section: 'resultado',
+        columns: resultColumns,
+        accent: 'lavender',
     },
 ] as const satisfies ReadonlyArray<{
     tab: (typeof tabs)[number]['key'];
@@ -398,38 +464,38 @@ function submitCreate() {
 <template>
     <Head title="Presupuesto" />
 
-    <datalist id="budget-cats">
+    <datalist id="budget-parties">
         <option
-            v-for="value in suggestions.categories"
+            v-for="value in suggestions.parties"
             :key="value"
             :value="value"
         />
     </datalist>
-    <datalist id="budget-pms">
+    <datalist id="budget-productos">
         <option
-            v-for="value in suggestions.payment_methods"
+            v-for="value in suggestions.productos"
             :key="value"
             :value="value"
         />
     </datalist>
 
     <div
-        class="min-h-screen bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100"
+        class="min-h-screen bg-rose-50/50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100"
     >
         <header
-            class="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-neutral-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/80"
+            class="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-pink-100 bg-white/80 px-4 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/80"
         >
             <div class="mr-auto flex items-center gap-3">
                 <span
-                    class="flex size-8 items-center justify-center rounded-lg bg-linear-to-br from-indigo-500 to-fuchsia-500 text-white shadow-sm"
+                    class="flex size-8 items-center justify-center rounded-lg bg-linear-to-br from-pink-300 to-sky-300 text-white shadow-sm"
                 >
                     <Wallet class="size-4" />
                 </span>
-                <h1 class="text-lg font-semibold">Control de presupuesto</h1>
+                <h1 class="text-lg font-semibold">Control del negocio</h1>
                 <select
                     v-if="periods.length > 0"
                     :value="periodState?.id"
-                    class="rounded-md border border-neutral-300 bg-transparent px-2 py-1.5 text-sm font-medium outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/20 dark:border-neutral-700"
+                    class="rounded-md border border-pink-200 bg-transparent px-2 py-1.5 text-sm font-medium outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-300/30 dark:border-neutral-700"
                     @change="switchPeriod"
                 >
                     <option
@@ -511,7 +577,7 @@ function submitCreate() {
                                 </span>
                             </label>
                             <label class="grid gap-1 text-sm">
-                                Dinero disponible
+                                Capital inicial
                                 <input
                                     v-model.number="createForm.available_money"
                                     type="number"
@@ -540,7 +606,7 @@ function submitCreate() {
                 v-if="periodState"
                 size="sm"
                 variant="ghost"
-                class="text-red-600 hover:text-red-700"
+                class="text-rose-600 hover:text-rose-700"
                 @click="deletePeriod"
             >
                 <Trash2 class="size-4" />
@@ -560,12 +626,12 @@ function submitCreate() {
         <main class="mx-auto w-full max-w-[1700px] px-4 py-6">
             <div
                 v-if="!periodState"
-                class="mx-auto mt-16 max-w-md rounded-xl border border-dashed border-neutral-300 p-8 text-center dark:border-neutral-700"
+                class="mx-auto mt-16 max-w-md rounded-xl border border-dashed border-pink-200 p-8 text-center dark:border-neutral-700"
             >
                 <h2 class="text-base font-semibold">Todavía no hay períodos</h2>
                 <p class="mt-1 text-sm text-neutral-500">
                     Creá tu primer período mensual para empezar a registrar
-                    ingresos y gastos.
+                    compras, ventas y resultados.
                 </p>
                 <Button class="mt-4" @click="createOpen = true">
                     <CalendarPlus class="size-4" />
@@ -582,8 +648,8 @@ function submitCreate() {
                         class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
                         :class="
                             activeTab === tab.key
-                                ? 'bg-linear-to-r from-indigo-600 to-violet-600 text-white shadow-sm'
-                                : 'bg-white text-neutral-600 ring-1 ring-neutral-200 hover:bg-neutral-50 hover:text-neutral-900 dark:bg-neutral-900 dark:text-neutral-300 dark:ring-neutral-800 dark:hover:bg-neutral-800'
+                                ? 'bg-linear-to-r from-pink-300 to-sky-300 text-rose-950 shadow-sm'
+                                : 'bg-white text-neutral-600 ring-1 ring-pink-100 hover:bg-pink-50 hover:text-neutral-900 dark:bg-neutral-900 dark:text-neutral-300 dark:ring-neutral-800 dark:hover:bg-neutral-800'
                         "
                         @click="activeTab = tab.key"
                     >

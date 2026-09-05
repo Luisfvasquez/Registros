@@ -51,8 +51,10 @@ class BudgetController extends Controller
             'lines' => $lines,
             'summary' => $summary,
             'suggestions' => [
-                'categories' => $this->distinctValues('category'),
+                'parties' => $this->distinctValues('party_name'),
+                'productos' => $this->distinctValues('producto'),
                 'payment_methods' => $this->distinctValues('payment_method'),
+                'payment_statuses' => $this->distinctValues('payment_status'),
             ],
         ]);
     }
@@ -96,13 +98,6 @@ class BudgetController extends Controller
     {
         $line = $period->lines()->create([
             'section' => $request->string('section')->toString(),
-            'detail' => $request->string('detail')->toString(),
-            'category' => $request->input('category'),
-            'payment_method' => $request->input('payment_method'),
-            'ideal_percent' => $request->input('ideal_percent'),
-            'planned' => $request->input('planned', 0),
-            'actual' => $request->input('actual', 0),
-            'is_unexpected' => $request->boolean('is_unexpected'),
             'position' => $request->integer('position', $period->lines()->max('position') + 1),
         ]);
 

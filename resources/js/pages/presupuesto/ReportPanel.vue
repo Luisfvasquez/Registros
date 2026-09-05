@@ -4,8 +4,11 @@ import {
     ArrowUpCircle,
     Info,
     Landmark,
+    PackageX,
     PiggyBank,
+    TrendingDown,
     TrendingUp,
+    Users,
     Wallet,
 } from '@lucide/vue';
 import { computed } from 'vue';
@@ -26,60 +29,90 @@ const monthName = computed(
     () => MONTHS[props.period.month - 1] ?? String(props.period.month),
 );
 
+const positive = 'text-sky-600 dark:text-sky-400';
+const negative = 'text-rose-600 dark:text-rose-400';
+
 const cards = computed(() => [
     {
-        label: 'Ingreso total',
-        value: props.summary.ingreso_total,
+        label: 'Total ventas',
+        value: props.summary.total_ventas,
         icon: ArrowUpCircle,
-        bar: 'bg-emerald-500',
-        text: 'text-emerald-600 dark:text-emerald-400',
-        hint: 'Suma de todos los ingresos reales cargados en la pestaña Ingresos.',
+        bar: 'bg-sky-300',
+        text: positive,
+        hint: 'Suma del precio total de todas las ventas registradas.',
     },
     {
-        label: 'Gastos totales',
-        value: props.summary.gastos_totales,
+        label: 'Ventas a clientes',
+        value: props.summary.total_clientes,
+        icon: Users,
+        bar: 'bg-pink-300',
+        text: 'text-pink-600 dark:text-pink-400',
+        hint: 'Suma del precio total de las ventas cargadas en Relación con clientes.',
+    },
+    {
+        label: 'Total compras',
+        value: props.summary.total_compras,
         icon: ArrowDownCircle,
-        bar: 'bg-rose-500',
-        text: 'text-rose-600 dark:text-rose-400',
-        hint: 'Suma de lo gastado en Presupuesto por fecha + Gastos fijos.',
+        bar: 'bg-orange-300',
+        text: 'text-orange-600 dark:text-orange-400',
+        hint: 'Suma del precio total de la mercancía comprada a proveedores.',
     },
     {
-        label: 'Presupuesto disponible',
-        value: props.summary.presupuesto_disponible,
+        label: 'Ganancia bruta',
+        value: props.summary.ganancia_bruta,
+        icon: props.summary.ganancia_bruta >= 0 ? TrendingUp : TrendingDown,
+        bar:
+            props.summary.ganancia_bruta >= 0 ? 'bg-indigo-300' : 'bg-rose-300',
+        text: props.summary.ganancia_bruta >= 0 ? positive : negative,
+        hint: 'Ingresos por ventas y clientes menos el total de compras.',
+    },
+    {
+        label: 'Cuentas por cobrar',
+        value: props.summary.cuentas_por_cobrar,
         icon: Wallet,
-        bar: 'bg-violet-500',
-        text:
-            props.summary.presupuesto_disponible >= 0
-                ? 'text-violet-600 dark:text-violet-400'
-                : 'text-rose-600 dark:text-rose-400',
-        hint: 'Presupuesto planificado menos lo ya gastado. En negativo = te pasaste.',
+        bar: 'bg-pink-300',
+        text: 'text-pink-600 dark:text-pink-400',
+        hint: 'Ventas a clientes que todavía no están pagadas.',
     },
     {
-        label: 'Ahorros e inversiones',
-        value: props.summary.ahorros_inversiones,
-        icon: PiggyBank,
-        bar: 'bg-sky-500',
-        text: 'text-sky-600 dark:text-sky-400',
-        hint: 'Suma de lo efectivamente aportado en la pestaña Ahorros.',
-    },
-    {
-        label: 'Pagos de deuda',
-        value: props.summary.pagos_deuda,
+        label: 'Cuentas por pagar',
+        value: props.summary.cuentas_por_pagar,
         icon: Landmark,
-        bar: 'bg-amber-500',
-        text: 'text-amber-600 dark:text-amber-400',
-        hint: 'Suma de lo abonado a deudas en la pestaña Estado de deudas.',
+        bar: 'bg-orange-300',
+        text: 'text-orange-600 dark:text-orange-400',
+        hint: 'Compras que todavía no se pagaron al proveedor.',
     },
     {
-        label: 'Utilidad',
-        value: props.summary.utilidad,
-        icon: TrendingUp,
-        bar: props.summary.utilidad >= 0 ? 'bg-emerald-500' : 'bg-rose-500',
-        text:
-            props.summary.utilidad >= 0
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : 'text-rose-600 dark:text-rose-400',
-        hint: 'Ingreso total menos gastos totales menos pagos de deuda.',
+        label: 'Gastos personales',
+        value: props.summary.gastos_personales,
+        icon: ArrowDownCircle,
+        bar: 'bg-rose-300',
+        text: negative,
+        hint: 'Dinero del negocio usado en gastos personales (pestaña Ganancias y pérdidas).',
+    },
+    {
+        label: 'Pérdidas por mercancía',
+        value: props.summary.perdidas_mercancia,
+        icon: PackageX,
+        bar: 'bg-rose-300',
+        text: negative,
+        hint: 'Valor de la mercancía dañada, vencida o no vendible.',
+    },
+    {
+        label: 'Inversiones',
+        value: props.summary.inversiones,
+        icon: PiggyBank,
+        bar: 'bg-indigo-300',
+        text: 'text-indigo-600 dark:text-indigo-400',
+        hint: 'Dinero reinvertido en el negocio.',
+    },
+    {
+        label: 'Utilidad neta',
+        value: props.summary.utilidad_neta,
+        icon: props.summary.utilidad_neta >= 0 ? TrendingUp : TrendingDown,
+        bar: props.summary.utilidad_neta >= 0 ? 'bg-sky-300' : 'bg-rose-300',
+        text: props.summary.utilidad_neta >= 0 ? positive : negative,
+        hint: 'Ganancia − gastos personales − pérdidas − inversiones (pestaña Ganancias y pérdidas).',
     },
 ]);
 
@@ -92,20 +125,14 @@ function onAvailableMoney(event: Event) {
 function onStatus(event: Event) {
     emit('updatePeriod', { status: (event.target as HTMLSelectElement).value });
 }
-
-function onNotes(event: Event) {
-    const value = (event.target as HTMLTextAreaElement).value.trim();
-
-    emit('updatePeriod', { notes: value === '' ? null : value });
-}
 </script>
 
 <template>
     <div
-        class="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-950"
+        class="overflow-hidden rounded-2xl border border-pink-100 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-950"
     >
         <div
-            class="flex flex-wrap items-center gap-x-6 gap-y-3 bg-linear-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-5 py-4 text-white"
+            class="flex flex-wrap items-center gap-x-6 gap-y-3 bg-linear-to-r from-pink-300 via-rose-200 to-sky-300 px-5 py-4 text-rose-950"
         >
             <div class="flex items-center gap-2">
                 <Wallet class="size-5 opacity-90" />
@@ -139,7 +166,7 @@ function onNotes(event: Event) {
                     :value="period.status"
                     :disabled="readonly"
                     title="Abierto: seguís cargando datos. Cerrado: el período queda de solo lectura."
-                    class="rounded-md bg-white/15 px-1.5 py-0.5 text-sm font-semibold capitalize outline-none disabled:opacity-60 [&>option]:text-neutral-900"
+                    class="rounded-md bg-white/40 px-1.5 py-0.5 text-sm font-semibold capitalize outline-none disabled:opacity-60 [&>option]:text-neutral-900"
                     @change="onStatus"
                 >
                     <option value="abierto">abierto</option>
@@ -149,15 +176,15 @@ function onNotes(event: Event) {
 
             <label class="flex flex-col">
                 <span class="text-[11px] tracking-wide uppercase opacity-75">
-                    Dinero disponible (inicial)
+                    Capital inicial
                 </span>
                 <input
                     type="number"
                     step="0.01"
                     :value="period.available_money"
                     :disabled="readonly"
-                    title="Plata con la que arrancás el mes (saldo inicial). Se suma al ingreso para calcular el dinero disponible."
-                    class="w-32 rounded-md bg-white/15 px-1.5 py-0.5 text-sm font-semibold tabular-nums outline-none placeholder:text-white/60 disabled:opacity-60"
+                    title="Dinero con el que arranca el período."
+                    class="w-32 rounded-md bg-white/40 px-1.5 py-0.5 text-sm font-semibold tabular-nums outline-none placeholder:text-rose-900/50 disabled:opacity-60"
                     @change="onAvailableMoney"
                 />
             </label>
@@ -165,15 +192,15 @@ function onNotes(event: Event) {
             <span
                 class="ml-auto rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase"
                 :class="
-                    summary.estado_presupuesto === 'excedido'
-                        ? 'bg-rose-950/40 text-rose-100 ring-1 ring-rose-300/50'
-                        : 'bg-emerald-950/30 text-emerald-100 ring-1 ring-emerald-300/50'
+                    summary.estado === 'perdida'
+                        ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300'
+                        : 'bg-sky-100 text-sky-700 ring-1 ring-sky-300'
                 "
             >
                 {{
-                    summary.estado_presupuesto === 'excedido'
-                        ? 'Presupuesto excedido'
-                        : 'Dentro del presupuesto'
+                    summary.estado === 'perdida'
+                        ? 'Período en pérdida'
+                        : 'Período con ganancia'
                 }}
             </span>
         </div>
@@ -210,57 +237,5 @@ function onNotes(event: Event) {
                 </div>
             </div>
         </div>
-
-        <!-- <div
-            class="flex flex-wrap items-center gap-x-6 gap-y-1 border-t border-neutral-200 px-4 py-3 text-xs text-neutral-500 dark:border-neutral-800"
-        >
-            <span>
-                Dinero disponible proyectado:
-                <strong
-                    class="text-neutral-800 tabular-nums dark:text-neutral-200"
-                >
-                    {{
-                        formatMoney(summary.dinero_disponible, period.currency)
-                    }}
-                </strong>
-            </span>
-            <span>
-                Ingreso proyectado:
-                <strong
-                    class="text-neutral-800 tabular-nums dark:text-neutral-200"
-                >
-                    {{
-                        formatMoney(summary.ingreso_proyectado, period.currency)
-                    }}
-                </strong>
-            </span>
-            <span>
-                Ganancias inesperadas:
-                <strong
-                    class="text-emerald-600 tabular-nums dark:text-emerald-400"
-                >
-                    {{
-                        formatMoney(
-                            summary.ganancias_inesperadas,
-                            period.currency,
-                        )
-                    }}
-                </strong>
-            </span>
-        </div> -->
-
-        <!-- <label class="block px-4 pb-4">
-            <span class="text-xs text-neutral-500"
-                >Notas / resumen del mes</span
-            >
-            <textarea
-                :value="period.notes ?? ''"
-                :disabled="readonly"
-                rows="2"
-                placeholder="Comentarios del mes, decisiones, pendientes…"
-                class="mt-1 block w-full resize-y rounded-lg border border-neutral-200 bg-transparent px-3 py-2 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/20 disabled:opacity-60 dark:border-neutral-800"
-                @change="onNotes"
-            ></textarea>
-        </label> -->
     </div>
 </template>

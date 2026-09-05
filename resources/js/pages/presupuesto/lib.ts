@@ -86,55 +86,65 @@ const num = (value: string | number | null | undefined): number => {
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 
+export const lineTotal = (line: BudgetLine): number =>
+    round2(num(line.cantidad) * num(line.unit_price));
+
+export const lineUtilidad = (line: BudgetLine): number =>
+    round2(
+        num(line.ganancia) -
+            num(line.gastos_personales) -
+            num(line.perdidas_mercancia) -
+            num(line.inversiones),
+    );
+
 /**
  * Mirrors BudgetPeriod::summary() on the server so the report updates instantly
  * while the background request confirms the write.
  */
-export function computeSummary(
-    lines: BudgetLine[],
-    availableMoney: string | number,
-): BudgetSummary {
-    const sumActual = (sections: BudgetSection[]) =>
+export function computeSummary(lines: BudgetLine[]): BudgetSummary {
+    const sumTotal = (section: BudgetSection) =>
         lines
-            .filter((line) => sections.includes(line.section))
-            .reduce((total, line) => total + num(line.actual), 0);
+            .filter((line) => line.section === section)
+            .reduce((total, line) => total + lineTotal(line), 0);
 
-    const sumPlanned = (sections: BudgetSection[]) =>
+    const isPaid = (line: BudgetLine) =>
+        (line.payment_status ?? '').trim().toLowerCase() === 'pagado';
+
+    const sumUnpaid = (section: BudgetSection) =>
         lines
-            .filter((line) => sections.includes(line.section))
-            .reduce((total, line) => total + num(line.planned), 0);
+            .filter((line) => line.section === section && !isPaid(line))
+            .reduce((total, line) => total + lineTotal(line), 0);
 
-    const ingresoTotal = sumActual(['ingreso']);
-    const ingresoProyectado = sumPlanned(['ingreso']);
-    const gananciasInesperadas = lines
-        .filter((line) => line.section === 'ingreso' && line.is_unexpected)
-        .reduce((total, line) => total + num(line.actual), 0);
+    const resultado = lines.filter((line) => line.section === 'resultado');
+    const sumField = (field: keyof BudgetLine) =>
+        resultado.reduce(
+            (total, line) => total + num(line[field] as string),
+            0,
+        );
 
-    const gastosTotales = sumActual(['presupuesto', 'gasto_fijo']);
-    const presupuestoTotal = sumPlanned(['presupuesto', 'gasto_fijo']);
-    const pagosDeuda = sumActual(['deuda']);
-    const ahorrosInversiones = sumActual(['ahorro']);
-
-    const dineroDisponible =
-        num(availableMoney) +
-        ingresoTotal -
-        gastosTotales -
-        pagosDeuda -
-        ahorrosInversiones;
+    const totalCompras = sumTotal('compra');
+    const totalVentas = sumTotal('venta');
+    const totalClientes = sumTotal('cliente');
+    const ingresosTotales = totalVentas + totalClientes;
+    const utilidadNeta = resultado.reduce(
+        (total, line) => total + lineUtilidad(line),
+        0,
+    );
 
     return {
-        ingreso_total: round2(ingresoTotal),
-        ingreso_proyectado: round2(ingresoProyectado),
-        ganancias_inesperadas: round2(gananciasInesperadas),
-        gastos_totales: round2(gastosTotales),
-        presupuesto_total: round2(presupuestoTotal),
-        presupuesto_disponible: round2(presupuestoTotal - gastosTotales),
-        pagos_deuda: round2(pagosDeuda),
-        ahorros_inversiones: round2(ahorrosInversiones),
-        dinero_disponible: round2(dineroDisponible),
-        utilidad: round2(ingresoTotal - gastosTotales - pagosDeuda),
-        estado_presupuesto:
-            gastosTotales > presupuestoTotal ? 'excedido' : 'dentro',
+        total_compras: round2(totalCompras),
+        total_ventas: round2(totalVentas),
+        total_clientes: round2(totalClientes),
+        ingresos_totales: round2(ingresosTotales),
+        cuentas_por_pagar: round2(sumUnpaid('compra')),
+        cuentas_por_cobrar: round2(sumUnpaid('cliente')),
+        ganancia_bruta: round2(ingresosTotales - totalCompras),
+        ganancia_registrada: round2(sumField('ganancia')),
+        gastos_personales: round2(sumField('gastos_personales')),
+        perdidas_mercancia: round2(sumField('perdidas_mercancia')),
+        inversiones: round2(sumField('inversiones')),
+        utilidad_neta: round2(utilidadNeta),
+        estado: utilidadNeta >= 0 ? 'ganancia' : 'perdida',
     };
 }
 

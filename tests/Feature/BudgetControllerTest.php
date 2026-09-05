@@ -22,7 +22,7 @@ class BudgetControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create(['year' => 2026, 'month' => 8, 'currency' => 'USD']);
-        BudgetLine::factory()->count(3)->for($period, 'period')->create(['section' => BudgetLine::SECTION_INCOME]);
+        BudgetLine::factory()->count(3)->for($period, 'period')->create(['section' => BudgetLine::SECTION_SALE]);
 
         $response = $this->actingAs($user)->get(route('presupuesto.index', ['period' => $period->id]));
 
@@ -85,7 +85,7 @@ class BudgetControllerTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('period.status', 'cerrado')
-            ->assertJsonStructure(['period', 'summary' => ['dinero_disponible', 'utilidad']]);
+            ->assertJsonStructure(['period', 'summary' => ['utilidad_neta', 'ganancia_bruta', 'estado']]);
 
         $this->assertDatabaseHas('budget_periods', [
             'id' => $period->id,
@@ -100,30 +100,37 @@ class BudgetControllerTest extends TestCase
         $period = BudgetPeriod::factory()->create();
 
         $created = $this->actingAs($user)->postJson(route('presupuesto.lines.store', $period), [
-            'section' => BudgetLine::SECTION_FIXED_EXPENSE,
+            'section' => BudgetLine::SECTION_PURCHASE,
         ]);
 
-        $created->assertCreated()->assertJsonPath('line.section', BudgetLine::SECTION_FIXED_EXPENSE);
+        $created->assertCreated()->assertJsonPath('line.section', BudgetLine::SECTION_PURCHASE);
         $lineId = $created->json('line.id');
 
         $updated = $this->actingAs($user)->patchJson(route('presupuesto.lines.update', $lineId), [
-            'detail' => 'Alquiler',
-            'category' => 'Hogar',
-            'planned' => 500,
-            'actual' => 520,
-            'payment_method' => 'Transferencia',
+            'fecha' => '2026-09-03',
+            'party_name' => 'Distribuidora Sur',
+            'producto' => 'Arroz',
+            'cantidad' => 10,
+            'unit_price' => 5,
+            'payment_status' => 'Pendiente',
         ]);
 
         $updated->assertOk()
-            ->assertJsonPath('line.detail', 'Alquiler')
-            ->assertJsonPath('summary.gastos_totales', 520)
-            ->assertJsonPath('summary.estado_presupuesto', 'excedido');
+            ->assertJsonPath('line.producto', 'Arroz')
+            ->assertJsonPath('line.precio_total', 50)
+            ->assertJsonPath('summary.total_compras', 50)
+            ->assertJsonPath('summary.cuentas_por_pagar', 50);
 
-        $this->assertDatabaseHas('budget_lines', ['id' => $lineId, 'detail' => 'Alquiler', 'actual' => 520]);
+        $this->assertDatabaseHas('budget_lines', [
+            'id' => $lineId,
+            'producto' => 'Arroz',
+            'cantidad' => 10,
+            'unit_price' => 5,
+        ]);
 
         $this->actingAs($user)->deleteJson(route('presupuesto.lines.destroy', $lineId))
             ->assertOk()
-            ->assertJsonPath('summary.gastos_totales', 0);
+            ->assertJsonPath('summary.total_compras', 0);
 
         $this->assertDatabaseMissing('budget_lines', ['id' => $lineId]);
     }
@@ -131,13 +138,13 @@ class BudgetControllerTest extends TestCase
     public function test_the_section_of_an_existing_line_cannot_be_changed(): void
     {
         $user = User::factory()->create();
-        $line = BudgetLine::factory()->section(BudgetLine::SECTION_SAVING)->create();
+        $line = BudgetLine::factory()->section(BudgetLine::SECTION_SALE)->create();
 
         $this->actingAs($user)->patchJson(route('presupuesto.lines.update', $line), [
-            'section' => BudgetLine::SECTION_DEBT,
+            'section' => BudgetLine::SECTION_PURCHASE,
         ])->assertStatus(422);
 
-        $this->assertDatabaseHas('budget_lines', ['id' => $line->id, 'section' => BudgetLine::SECTION_SAVING]);
+        $this->assertDatabaseHas('budget_lines', ['id' => $line->id, 'section' => BudgetLine::SECTION_SALE]);
     }
 
     public function test_deleting_a_period_cascades_to_its_lines(): void
@@ -155,36 +162,39 @@ class BudgetControllerTest extends TestCase
 
     public function test_the_summary_totals_are_derived_from_the_lines(): void
     {
-        $period = BudgetPeriod::factory()->create(['available_money' => 100]);
+        $period = BudgetPeriod::factory()->create();
 
         BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_INCOME, 'planned' => 1000, 'actual' => 1200, 'is_unexpected' => true,
+            'section' => BudgetLine::SECTION_PURCHASE, 'cantidad' => 10, 'unit_price' => 5, 'payment_status' => 'Pagado',
         ]);
         BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_BUDGET, 'planned' => 400, 'actual' => 350,
+            'section' => BudgetLine::SECTION_PURCHASE, 'cantidad' => 4, 'unit_price' => 10, 'payment_status' => 'Pendiente',
         ]);
         BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_FIXED_EXPENSE, 'planned' => 200, 'actual' => 200,
+            'section' => BudgetLine::SECTION_SALE, 'cantidad' => 10, 'unit_price' => 12,
         ]);
         BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_SAVING, 'planned' => 150, 'actual' => 150,
+            'section' => BudgetLine::SECTION_CLIENT, 'cantidad' => 2, 'unit_price' => 15, 'payment_status' => 'Pendiente',
         ]);
         BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_DEBT, 'planned' => 100, 'actual' => 90,
+            'section' => BudgetLine::SECTION_RESULT,
+            'ganancia' => 200, 'gastos_personales' => 50, 'perdidas_mercancia' => 20, 'inversiones' => 30,
         ]);
 
         $summary = $period->summary();
 
-        $this->assertSame(1200.0, $summary['ingreso_total']);
-        $this->assertSame(1200.0, $summary['ganancias_inesperadas']);
-        $this->assertSame(550.0, $summary['gastos_totales']);
-        $this->assertSame(600.0, $summary['presupuesto_total']);
-        $this->assertSame(50.0, $summary['presupuesto_disponible']);
-        $this->assertSame(150.0, $summary['ahorros_inversiones']);
-        $this->assertSame(90.0, $summary['pagos_deuda']);
-        $this->assertSame(560.0, $summary['utilidad']);
-        // 100 disponible + 1200 ingreso - 550 gastos - 90 deuda - 150 ahorro
-        $this->assertSame(510.0, $summary['dinero_disponible']);
-        $this->assertSame('dentro', $summary['estado_presupuesto']);
+        $this->assertSame(90.0, $summary['total_compras']);
+        $this->assertSame(120.0, $summary['total_ventas']);
+        $this->assertSame(30.0, $summary['total_clientes']);
+        $this->assertSame(150.0, $summary['ingresos_totales']);
+        $this->assertSame(40.0, $summary['cuentas_por_pagar']);
+        $this->assertSame(30.0, $summary['cuentas_por_cobrar']);
+        $this->assertSame(60.0, $summary['ganancia_bruta']);
+        $this->assertSame(200.0, $summary['ganancia_registrada']);
+        $this->assertSame(50.0, $summary['gastos_personales']);
+        $this->assertSame(20.0, $summary['perdidas_mercancia']);
+        $this->assertSame(30.0, $summary['inversiones']);
+        $this->assertSame(100.0, $summary['utilidad_neta']);
+        $this->assertSame('ganancia', $summary['estado']);
     }
 }
