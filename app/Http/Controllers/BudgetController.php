@@ -9,6 +9,7 @@ use App\Models\BudgetPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -94,11 +95,17 @@ class BudgetController extends Controller
         return to_route('presupuesto.index');
     }
 
+    /**
+     * Create a blank row, or a row pre-seeded with a proveedor / cliente and a
+     * fecha so several products can be logged for the same party without
+     * retyping it.
+     */
     public function storeLine(BudgetLineRequest $request, BudgetPeriod $period): JsonResponse
     {
         $line = $period->lines()->create([
+            ...$request->safe()->except(['section', 'position']),
             'section' => $request->string('section')->toString(),
-            'position' => $request->integer('position', $period->lines()->max('position') + 1),
+            'position' => $request->integer('position', ($period->lines()->max('position') ?? 0) + 1),
         ]);
 
         return response()->json([
@@ -107,14 +114,69 @@ class BudgetController extends Controller
         ], 201);
     }
 
+    /**
+     * Fields mirrored from a "cliente" row onto the "venta" row it was
+     * registered as, so the sale is only ever edited in one place.
+     *
+     * @var list<string>
+     */
+    private const MIRRORED_TO_SALE = ['fecha', 'producto', 'cantidad', 'unit_price'];
+
     public function updateLine(BudgetLineRequest $request, BudgetLine $line): JsonResponse
     {
-        $line->update($request->safe()->except('section'));
+        $data = $request->safe()->except('section');
+
+        $line->update($data);
+
+        if ($line->section === BudgetLine::SECTION_CLIENT) {
+            $mirrored = array_intersect_key($data, array_flip(self::MIRRORED_TO_SALE));
+
+            if ($mirrored !== []) {
+                $line->saleLine()->update($mirrored);
+            }
+        }
 
         return response()->json([
             'line' => $line->fresh(),
             'summary' => $line->period->summary(),
         ]);
+    }
+
+    /**
+     * Register a "relación con clientes" row as a sale: creates the matching
+     * "venta" row, linked back so the amount is counted once and the two stay
+     * in sync.
+     */
+    public function linkLineToSale(BudgetLine $line): JsonResponse
+    {
+        if ($line->section !== BudgetLine::SECTION_CLIENT) {
+            throw ValidationException::withMessages([
+                'line' => __('Solo las filas de relación con clientes se pueden registrar en ventas.'),
+            ]);
+        }
+
+        if ($line->saleLine()->exists()) {
+            throw ValidationException::withMessages([
+                'line' => __('Esta fila ya está registrada en ventas.'),
+            ]);
+        }
+
+        $period = $line->period;
+
+        $sale = $period->lines()->create([
+            'section' => BudgetLine::SECTION_SALE,
+            'fecha' => $line->fecha,
+            'producto' => $line->producto,
+            'cantidad' => $line->cantidad,
+            'unit_price' => $line->unit_price,
+            'position' => ($period->lines()->max('position') ?? 0) + 1,
+            'linked_line_id' => $line->id,
+        ]);
+
+        return response()->json([
+            'line' => $sale,
+            'summary' => $period->summary(),
+        ], 201);
     }
 
     public function destroyLine(BudgetLine $line): JsonResponse

@@ -17,4 +17,5 @@ Route::middleware(['auth', 'verified'])->prefix('presupuesto')->name('presupuest
     Route::post('periodos/{period}/lineas', [BudgetController::class, 'storeLine'])->name('lines.store');
     Route::patch('lineas/{line}', [BudgetController::class, 'updateLine'])->name('lines.update');
     Route::delete('lineas/{line}', [BudgetController::class, 'destroyLine'])->name('lines.destroy');
+    Route::post('lineas/{line}/registrar-venta', [BudgetController::class, 'linkLineToSale'])->name('lines.link-sale');
 });

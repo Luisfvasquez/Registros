@@ -125,7 +125,24 @@ export function computeSummary(lines: BudgetLine[]): BudgetSummary {
     const totalCompras = sumTotal('compra');
     const totalVentas = sumTotal('venta');
     const totalClientes = sumTotal('cliente');
-    const ingresosTotales = totalVentas + totalClientes;
+
+    // Una venta a cliente ya registrada en "ventas" (linked_line_id en la fila
+    // de venta) ya está contada en totalVentas; no sumarla de nuevo.
+    const linkedClientIds = new Set(
+        lines
+            .filter(
+                (line) =>
+                    line.section === 'venta' && line.linked_line_id != null,
+            )
+            .map((line) => line.linked_line_id as number),
+    );
+    const clientesNoRegistrados = lines
+        .filter(
+            (line) =>
+                line.section === 'cliente' && !linkedClientIds.has(line.id),
+        )
+        .reduce((total, line) => total + lineTotal(line), 0);
+    const ingresosTotales = totalVentas + clientesNoRegistrados;
     const utilidadNeta = resultado.reduce(
         (total, line) => total + lineUtilidad(line),
         0,

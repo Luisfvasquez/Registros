@@ -1,8 +1,16 @@
 <script setup lang="ts">
-import { Info, Plus, Trash2 } from '@lucide/vue';
+import { ArrowLeftRight, Check, Info, Link2, Plus, Trash2 } from '@lucide/vue';
 import { computed } from 'vue';
 import type { BudgetLine, BudgetSection } from '@/types';
 import { formatMoney } from './lib';
+
+/** Fields on a linked "venta" row that are mirrored from its "cliente" row. */
+const MIRRORED_FROM_CLIENT = new Set<keyof BudgetLine>([
+    'fecha',
+    'producto',
+    'cantidad',
+    'unit_price',
+]);
 
 type ColumnType =
     | 'text'
@@ -41,15 +49,67 @@ const props = withDefaults(
         currency: string;
         accent?: Accent;
         readonly?: boolean;
+        /** Field to group rows by (e.g. `party_name`), with a per-group "add product" button. */
+        groupBy?: keyof BudgetLine;
+        /** Show a "Registrar en Ventas" action on each row (relación con clientes). */
+        linkable?: boolean;
+        /** Ids of rows that already have a linked sale (so the action shows as done). */
+        registeredIds?: number[];
     }>(),
     { accent: 'slate' },
 );
 
 const emit = defineEmits<{
-    add: [section: BudgetSection];
+    add: [section: BudgetSection, seed?: Record<string, unknown>];
     update: [line: BudgetLine, patch: Record<string, unknown>];
     remove: [line: BudgetLine];
+    register: [line: BudgetLine];
 }>();
+
+type RowGroup = { key: string; label: string; rows: BudgetLine[] };
+
+const groupedRows = computed<RowGroup[]>(() => {
+    if (!props.groupBy) {
+        return [{ key: '__all__', label: '', rows: props.rows }];
+    }
+
+    const field = props.groupBy;
+    const groups = new Map<string, RowGroup>();
+
+    for (const row of props.rows) {
+        const label = ((row[field] as string | null) ?? '').trim();
+        const key = label === '' ? '__unassigned__' : label.toLowerCase();
+
+        if (!groups.has(key)) {
+            groups.set(key, { key, label, rows: [] });
+        }
+
+        groups.get(key)?.rows.push(row);
+    }
+
+    return [...groups.values()];
+});
+
+const registeredSet = computed(() => new Set(props.registeredIds ?? []));
+
+const isLinkedSale = (line: BudgetLine): boolean =>
+    props.section === 'venta' && line.linked_line_id != null;
+
+const isMirroredCell = (line: BudgetLine, column: GridColumn): boolean =>
+    isLinkedSale(line) && MIRRORED_FROM_CLIENT.has(column.field);
+
+function addProductToGroup(group: RowGroup) {
+    if (!props.groupBy) {
+        return;
+    }
+
+    const lastFecha = group.rows[group.rows.length - 1]?.fecha ?? undefined;
+
+    emit('add', props.section, {
+        [props.groupBy]: group.label,
+        ...(lastFecha ? { fecha: lastFecha } : {}),
+    });
+}
 
 /**
  * Full class strings per accent so Tailwind's scanner keeps them in the build.
@@ -114,10 +174,10 @@ const num = (value: string | number | null | undefined) => {
 
 const gridTemplate = computed(() => {
     const cols = props.columns
-        .map((column) => column.width ?? 'minmax(6rem, 1fr)')
+        .map((column) => column.width ?? 'minmax(7rem, 1fr)')
         .join(' ');
 
-    return `${cols} 2rem`;
+    return `${cols} minmax(2rem, max-content)`;
 });
 
 const cellValue = (line: BudgetLine, column: GridColumn): number =>
@@ -197,13 +257,13 @@ function onNumber(line: BudgetLine, field: keyof BudgetLine, event: Event) {
             <div class="min-w-md text-[13px]">
                 <!-- Column headers -->
                 <div
-                    class="grid items-center border-b border-neutral-200 bg-neutral-50/80 px-2 py-1.5 text-[11px] font-semibold tracking-wide text-neutral-500 uppercase dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400"
+                    class="grid items-end border-b border-neutral-200 bg-neutral-50/80 px-2 py-2 text-[11px] leading-[1.15] font-semibold tracking-tight text-neutral-500 uppercase dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400"
                     :style="{ gridTemplateColumns: gridTemplate }"
                 >
                     <div
                         v-for="column in columns"
                         :key="String(column.field)"
-                        class="flex items-center gap-0.5 truncate px-1"
+                        class="flex min-w-0 items-end gap-0.5 px-1"
                         :class="[
                             align(column),
                             column.hint ? 'cursor-help' : '',
@@ -211,9 +271,10 @@ function onNumber(line: BudgetLine, field: keyof BudgetLine, event: Event) {
                         :title="column.hint"
                     >
                         <span
+                            class="wrap-break-word hyphens-auto"
                             :class="
                                 column.hint
-                                    ? 'underline decoration-dotted decoration-1 underline-offset-4'
+                                    ? 'underline decoration-dotted decoration-1 underline-offset-2'
                                     : ''
                             "
                         >
@@ -221,7 +282,7 @@ function onNumber(line: BudgetLine, field: keyof BudgetLine, event: Event) {
                         </span>
                         <Info
                             v-if="column.hint"
-                            class="size-3 shrink-0 opacity-50"
+                            class="mb-px size-3 shrink-0 opacity-50"
                         />
                     </div>
                     <div></div>
@@ -235,110 +296,165 @@ function onNumber(line: BudgetLine, field: keyof BudgetLine, event: Event) {
                     Sin registros todavía.
                 </p>
 
-                <div
-                    v-for="line in rows"
-                    :key="line.id"
-                    class="group grid items-center border-b border-neutral-100 px-2 transition last:border-0 odd:bg-neutral-50/40 dark:border-neutral-900 dark:odd:bg-neutral-900/20"
-                    :class="a.rowHover"
-                    :style="{ gridTemplateColumns: gridTemplate }"
-                >
+                <template v-for="grp in groupedRows" :key="grp.key">
                     <div
-                        v-for="column in columns"
-                        :key="String(column.field)"
-                        class="flex min-w-0 items-center px-0.5 py-0.5"
-                        :class="align(column)"
+                        v-for="line in grp.rows"
+                        :key="line.id"
+                        class="group grid items-center border-b border-neutral-100 px-2 transition last:border-0 odd:bg-neutral-50/40 dark:border-neutral-900 dark:odd:bg-neutral-900/20"
+                        :class="[
+                            a.rowHover,
+                            isLinkedSale(line)
+                                ? 'bg-pink-50/50 dark:bg-pink-950/15'
+                                : '',
+                        ]"
+                        :style="{ gridTemplateColumns: gridTemplate }"
                     >
-                        <input
-                            v-if="
-                                column.type === 'text' ||
-                                column.type === 'autocomplete'
-                            "
-                            type="text"
-                            :list="
-                                column.type === 'autocomplete'
-                                    ? column.list
-                                    : undefined
-                            "
-                            :value="(line[column.field] as string) ?? ''"
-                            :disabled="readonly"
-                            :title="column.hint"
-                            class="h-7 w-full rounded-md border border-transparent bg-transparent px-2 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950"
-                            :class="a.focus"
-                            @change="onText(line, column.field, $event)"
-                        />
-                        <input
-                            v-else-if="column.type === 'date'"
-                            type="date"
-                            :value="
-                                ((line[column.field] as string) ?? '').slice(
-                                    0,
-                                    10,
-                                )
-                            "
-                            :disabled="readonly"
-                            :title="column.hint"
-                            class="h-7 w-full rounded-md border border-transparent bg-transparent px-2 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950"
-                            :class="a.focus"
-                            @change="onText(line, column.field, $event)"
-                        />
-                        <select
-                            v-else-if="column.type === 'select'"
-                            :value="(line[column.field] as string) ?? ''"
-                            :disabled="readonly"
-                            :title="column.hint"
-                            class="h-7 w-full rounded-md border border-transparent bg-transparent px-1 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950 [&>option]:text-neutral-900"
-                            :class="a.focus"
-                            @change="onText(line, column.field, $event)"
+                        <div
+                            v-for="column in columns"
+                            :key="String(column.field)"
+                            class="flex min-w-0 items-center px-0.5 py-0.5"
+                            :class="align(column)"
                         >
-                            <option value="">—</option>
-                            <option
-                                v-for="opt in column.options"
-                                :key="opt"
-                                :value="opt"
+                            <input
+                                v-if="
+                                    column.type === 'text' ||
+                                    column.type === 'autocomplete'
+                                "
+                                type="text"
+                                :list="
+                                    column.type === 'autocomplete'
+                                        ? column.list
+                                        : undefined
+                                "
+                                :value="(line[column.field] as string) ?? ''"
+                                :disabled="
+                                    readonly || isMirroredCell(line, column)
+                                "
+                                :title="column.hint"
+                                class="h-7 w-full rounded-md border border-transparent bg-transparent px-2 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950"
+                                :class="a.focus"
+                                @change="onText(line, column.field, $event)"
+                            />
+                            <input
+                                v-else-if="column.type === 'date'"
+                                type="date"
+                                :value="
+                                    (
+                                        (line[column.field] as string) ?? ''
+                                    ).slice(0, 10)
+                                "
+                                :disabled="
+                                    readonly || isMirroredCell(line, column)
+                                "
+                                :title="column.hint"
+                                class="h-7 w-full rounded-md border border-transparent bg-transparent px-2 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950"
+                                :class="a.focus"
+                                @change="onText(line, column.field, $event)"
+                            />
+                            <select
+                                v-else-if="column.type === 'select'"
+                                :value="(line[column.field] as string) ?? ''"
+                                :disabled="
+                                    readonly || isMirroredCell(line, column)
+                                "
+                                :title="column.hint"
+                                class="h-7 w-full rounded-md border border-transparent bg-transparent px-1 transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950 [&>option]:text-neutral-900"
+                                :class="a.focus"
+                                @change="onText(line, column.field, $event)"
                             >
-                                {{ opt }}
-                            </option>
-                        </select>
-                        <input
-                            v-else-if="
-                                column.type === 'money' ||
-                                column.type === 'number'
-                            "
-                            type="number"
-                            :step="column.type === 'money' ? '0.01' : 'any'"
-                            min="0"
-                            :value="(line[column.field] as string) ?? ''"
-                            :disabled="readonly"
-                            :title="column.hint"
-                            class="h-7 w-full rounded-md border border-transparent bg-transparent px-2 text-right tabular-nums transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950"
-                            :class="a.focus"
-                            @change="onNumber(line, column.field, $event)"
-                        />
-                        <span
-                            v-else-if="column.type === 'computed'"
-                            :title="column.hint"
-                            class="w-full px-2 text-right font-semibold text-neutral-700 tabular-nums dark:text-neutral-300"
-                        >
-                            {{
-                                formatMoney(
-                                    column.compute ? column.compute(line) : 0,
-                                    currency,
-                                )
-                            }}
-                        </span>
+                                <option value="">—</option>
+                                <option
+                                    v-for="opt in column.options"
+                                    :key="opt"
+                                    :value="opt"
+                                >
+                                    {{ opt }}
+                                </option>
+                            </select>
+                            <input
+                                v-else-if="
+                                    column.type === 'money' ||
+                                    column.type === 'number'
+                                "
+                                type="number"
+                                :step="column.type === 'money' ? '0.01' : 'any'"
+                                min="0"
+                                :value="(line[column.field] as string) ?? ''"
+                                :disabled="
+                                    readonly || isMirroredCell(line, column)
+                                "
+                                :title="column.hint"
+                                class="h-7 w-full rounded-md border border-transparent bg-transparent px-2 text-right tabular-nums transition outline-none focus:bg-white disabled:opacity-60 dark:focus:bg-neutral-950"
+                                :class="a.focus"
+                                @change="onNumber(line, column.field, $event)"
+                            />
+                            <span
+                                v-else-if="column.type === 'computed'"
+                                :title="column.hint"
+                                class="w-full px-2 text-right font-semibold text-neutral-700 tabular-nums dark:text-neutral-300"
+                            >
+                                {{
+                                    formatMoney(
+                                        column.compute
+                                            ? column.compute(line)
+                                            : 0,
+                                        currency,
+                                    )
+                                }}
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-center gap-0.5">
+                            <span
+                                v-if="isLinkedSale(line)"
+                                class="shrink-0 text-pink-400"
+                                title="Registrada desde Relación con clientes. Editá fecha, producto, cantidad y precio en esa sección."
+                            >
+                                <Link2 class="size-3.5" />
+                            </span>
+                            <template v-else-if="linkable && !readonly">
+                                <span
+                                    v-if="registeredSet.has(line.id)"
+                                    class="shrink-0 text-pink-500"
+                                    title="Ya registrada en Ventas"
+                                >
+                                    <Check class="size-3.5" />
+                                </span>
+                                <button
+                                    v-else
+                                    type="button"
+                                    class="rounded p-1 text-neutral-400 transition hover:bg-sky-100 hover:text-sky-600 dark:text-neutral-500 dark:hover:bg-sky-950/40 dark:hover:text-sky-400"
+                                    title="Registrar en Ventas"
+                                    @click="emit('register', line)"
+                                >
+                                    <ArrowLeftRight class="size-3.5" />
+                                </button>
+                            </template>
+                            <button
+                                v-if="!readonly"
+                                type="button"
+                                class="rounded p-1 text-neutral-300 opacity-0 transition group-hover:opacity-100 hover:bg-rose-100 hover:text-rose-600 dark:text-neutral-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
+                                title="Eliminar fila"
+                                @click="emit('remove', line)"
+                            >
+                                <Trash2 class="size-3.5" />
+                            </button>
+                        </div>
                     </div>
-                    <div class="flex justify-center">
+                    <div
+                        v-if="groupBy && grp.label && !readonly"
+                        class="border-b border-neutral-100 px-2 py-1 dark:border-neutral-900"
+                    >
                         <button
-                            v-if="!readonly"
                             type="button"
-                            class="rounded p-1 text-neutral-300 opacity-0 transition group-hover:opacity-100 hover:bg-rose-100 hover:text-rose-600 dark:text-neutral-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
-                            title="Eliminar fila"
-                            @click="emit('remove', line)"
+                            class="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-[11px] font-medium transition"
+                            :class="a.btn"
+                            @click="addProductToGroup(grp)"
                         >
-                            <Trash2 class="size-3.5" />
+                            <Plus class="size-3" />
+                            Agregar producto a {{ grp.label }}
                         </button>
                     </div>
-                </div>
+                </template>
 
                 <!-- Totals -->
                 <div

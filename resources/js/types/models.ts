@@ -140,6 +140,11 @@ export type BudgetLine = {
     /** Calculado en el servidor: ganancia − gastos − pérdidas − inversiones. */
     total_utilidad: number;
     position: number;
+    /**
+     * En una fila `venta` creada desde Relación con clientes: id de la fila
+     * `cliente` de origen. `null` en el resto.
+     */
+    linked_line_id: number | null;
     created_at: string;
     updated_at: string;
 };

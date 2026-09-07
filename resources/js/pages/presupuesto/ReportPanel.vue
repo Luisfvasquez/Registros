@@ -47,7 +47,7 @@ const cards = computed(() => [
         icon: Users,
         bar: 'bg-pink-300',
         text: 'text-pink-600 dark:text-pink-400',
-        hint: 'Suma del precio total de las ventas cargadas en Relación con clientes.',
+        hint: 'Suma del precio total de las ventas cargadas en Relación con clientes. Las que ya se registraron en Ventas se cuentan una sola vez en ingresos.',
     },
     {
         label: 'Total compras',
@@ -64,7 +64,7 @@ const cards = computed(() => [
         bar:
             props.summary.ganancia_bruta >= 0 ? 'bg-indigo-300' : 'bg-rose-300',
         text: props.summary.ganancia_bruta >= 0 ? positive : negative,
-        hint: 'Ingresos por ventas y clientes menos el total de compras.',
+        hint: 'Ingresos por ventas (más las ventas a clientes que no estén ya en Ventas) menos el total de compras.',
     },
     {
         label: 'Cuentas por cobrar',

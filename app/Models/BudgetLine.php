@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -26,11 +27,14 @@ use Illuminate\Support\Carbon;
  * @property float|null $perdidas_mercancia
  * @property float|null $inversiones
  * @property int $position
+ * @property int|null $linked_line_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read float $precio_total
  * @property-read float $total_utilidad
  * @property-read BudgetPeriod $period
+ * @property-read BudgetLine|null $sourceLine
+ * @property-read BudgetLine|null $saleLine
  */
 #[Fillable([
     'budget_period_id',
@@ -47,6 +51,7 @@ use Illuminate\Support\Carbon;
     'perdidas_mercancia',
     'inversiones',
     'position',
+    'linked_line_id',
 ])]
 class BudgetLine extends Model
 {
@@ -123,5 +128,25 @@ class BudgetLine extends Model
     public function period(): BelongsTo
     {
         return $this->belongsTo(BudgetPeriod::class, 'budget_period_id');
+    }
+
+    /**
+     * For a "venta" row created from a "cliente" row: the client row it mirrors.
+     *
+     * @return BelongsTo<BudgetLine, $this>
+     */
+    public function sourceLine(): BelongsTo
+    {
+        return $this->belongsTo(BudgetLine::class, 'linked_line_id');
+    }
+
+    /**
+     * For a "cliente" row: the "venta" row it was registered as, if any.
+     *
+     * @return HasOne<BudgetLine, $this>
+     */
+    public function saleLine(): HasOne
+    {
+        return $this->hasOne(BudgetLine::class, 'linked_line_id');
     }
 }

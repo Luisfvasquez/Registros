@@ -76,7 +76,19 @@ class BudgetPeriod extends Model
         $totalCompras = (float) $inSection(BudgetLine::SECTION_PURCHASE)->sum('precio_total');
         $totalVentas = (float) $inSection(BudgetLine::SECTION_SALE)->sum('precio_total');
         $totalClientes = (float) $inSection(BudgetLine::SECTION_CLIENT)->sum('precio_total');
-        $ingresosTotales = $totalVentas + $totalClientes;
+
+        // A client sale already registered in "ventas" (linked_line_id set on the
+        // venta row) is counted through total_ventas, so it must not be added a
+        // second time here.
+        $linkedClientIds = $inSection(BudgetLine::SECTION_SALE)
+            ->pluck('linked_line_id')
+            ->filter()
+            ->all();
+        $clientesNoRegistrados = (float) $inSection(BudgetLine::SECTION_CLIENT)
+            ->whereNotIn('id', $linkedClientIds)
+            ->sum('precio_total');
+
+        $ingresosTotales = $totalVentas + $clientesNoRegistrados;
 
         $cuentasPorPagar = (float) $inSection(BudgetLine::SECTION_PURCHASE)
             ->reject($isPaid)

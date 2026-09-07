@@ -68,6 +68,15 @@ const readonly = computed(() => periodState.value?.status === 'cerrado');
 
 const liveSummary = computed<BudgetSummary>(() => computeSummary(lines.value));
 
+/** Ids of relación-con-clientes rows that already have a linked venta row. */
+const registeredClientIds = computed(() =>
+    lines.value
+        .filter(
+            (line) => line.section === 'venta' && line.linked_line_id != null,
+        )
+        .map((line) => line.linked_line_id as number),
+);
+
 const tabs = [
     { key: 'general', label: 'Vista general' },
     { key: 'resumen', label: 'Resumen' },
@@ -258,10 +267,10 @@ const resultColumns: GridColumn[] = [
     },
     {
         field: 'perdidas_mercancia',
-        label: 'Pérdidas por mercancía mala',
+        label: 'Pérdidas mercancía',
         type: 'money',
         total: true,
-        hint: 'Valor de la mercancía dañada, vencida o no vendible.',
+        hint: 'Pérdidas por mercancía mala: valor de la mercancía dañada, vencida o no vendible.',
     },
     {
         field: 'inversiones',
@@ -292,6 +301,8 @@ const sectionDefs = [
         section: 'compra',
         columns: purchaseColumns,
         accent: 'peach',
+        groupBy: 'party_name',
+        linkable: false,
     },
     {
         tab: 'ventas',
@@ -300,6 +311,8 @@ const sectionDefs = [
         section: 'venta',
         columns: saleColumns,
         accent: 'sky',
+        groupBy: undefined,
+        linkable: false,
     },
     {
         tab: 'clientes',
@@ -308,6 +321,8 @@ const sectionDefs = [
         section: 'cliente',
         columns: clientColumns,
         accent: 'pink',
+        groupBy: 'party_name',
+        linkable: true,
     },
     {
         tab: 'resultados',
@@ -316,6 +331,8 @@ const sectionDefs = [
         section: 'resultado',
         columns: resultColumns,
         accent: 'lavender',
+        groupBy: undefined,
+        linkable: false,
     },
 ] as const satisfies ReadonlyArray<{
     tab: (typeof tabs)[number]['key'];
@@ -324,9 +341,11 @@ const sectionDefs = [
     section: BudgetSection;
     columns: GridColumn[];
     accent: Accent;
+    groupBy?: keyof BudgetLine;
+    linkable?: boolean;
 }>;
 
-async function addLine(section: BudgetSection) {
+async function addLine(section: BudgetSection, seed?: Record<string, unknown>) {
     if (!periodState.value) {
         return;
     }
@@ -335,10 +354,52 @@ async function addLine(section: BudgetSection) {
         const { line } = await api<{ line: BudgetLine }>(
             BudgetController.storeLine.url(periodState.value.id),
             'POST',
-            { section },
+            { section, ...seed },
         );
 
+        const seedParty =
+            typeof seed?.party_name === 'string' ? seed.party_name : '';
+
+        if (seedParty !== '') {
+            // Drop the new row right after the last one of that proveedor /
+            // cliente so it stays grouped before the next reload.
+            let insertAfter = -1;
+
+            lines.value.forEach((item, index) => {
+                if (
+                    item.section === section &&
+                    (item.party_name ?? '') === seedParty
+                ) {
+                    insertAfter = index;
+                }
+            });
+
+            if (insertAfter !== -1) {
+                lines.value.splice(insertAfter + 1, 0, line);
+
+                return;
+            }
+        }
+
         lines.value.push(line);
+    } catch (error) {
+        toast.error(firstError(error));
+    }
+}
+
+/**
+ * Register a "relación con clientes" row as a sale. Creates the linked venta row
+ * so the amount is typed once and counted once.
+ */
+async function registerInSales(line: BudgetLine) {
+    try {
+        const { line: sale } = await api<{ line: BudgetLine }>(
+            BudgetController.linkLineToSale.url(line.id),
+            'POST',
+        );
+
+        lines.value.push(sale);
+        toast.success('Venta registrada desde relación con clientes.');
     } catch (error) {
         toast.error(firstError(error));
     }
@@ -381,10 +442,25 @@ async function removeLine(line: BudgetLine) {
 
     const [removed] = lines.value.splice(idx, 1);
 
+    // Server drops the FK (nullOnDelete); unlink any local sale row too so it
+    // stops showing as "registrada desde cliente" and its fields unlock.
+    const unlinked = lines.value.filter(
+        (item) => item.linked_line_id === line.id,
+    );
+
+    for (const sale of unlinked) {
+        sale.linked_line_id = null;
+    }
+
     try {
         await api(BudgetController.destroyLine.url(line.id), 'DELETE');
     } catch (error) {
         lines.value.splice(idx, 0, removed);
+
+        for (const sale of unlinked) {
+            sale.linked_line_id = line.id;
+        }
+
         toast.error(firstError(error));
     }
 }
@@ -686,9 +762,13 @@ function submitCreate() {
                         :currency="periodState.currency"
                         :accent="def.accent"
                         :readonly="readonly"
+                        :group-by="def.groupBy"
+                        :linkable="def.linkable"
+                        :registered-ids="registeredClientIds"
                         @add="addLine"
                         @update="updateLine"
                         @remove="removeLine"
+                        @register="registerInSales"
                     />
                 </div>
 
@@ -715,9 +795,13 @@ function submitCreate() {
                         :currency="periodState.currency"
                         :accent="def.accent"
                         :readonly="readonly"
+                        :group-by="def.groupBy"
+                        :linkable="def.linkable"
+                        :registered-ids="registeredClientIds"
                         @add="addLine"
                         @update="updateLine"
                         @remove="removeLine"
+                        @register="registerInSales"
                     />
                 </div>
 
