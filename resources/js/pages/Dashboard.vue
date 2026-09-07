@@ -3,6 +3,7 @@ import { Head, Link } from '@inertiajs/vue3';
 import {
     ArrowDownCircle,
     ArrowUpCircle,
+    PiggyBank,
     TrendingDown,
     TrendingUp,
     Wallet,
@@ -11,6 +12,7 @@ import { computed } from 'vue';
 import DocumentController from '@/actions/App/Http/Controllers/DocumentController';
 import MoneyBs from '@/components/MoneyBs.vue';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
     Table,
     TableBody,
@@ -22,6 +24,7 @@ import {
 } from '@/components/ui/table';
 import { formatDate } from '@/lib/utils';
 import { dashboard } from '@/routes';
+import presupuesto from '@/routes/presupuesto';
 import type { Document, DocumentStatus } from '@/types';
 
 const props = defineProps<{
@@ -73,6 +76,16 @@ function money(value: number) {
     <Head title="Panel" />
 
     <div class="flex h-full flex-1 flex-col gap-6 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <h2 class="text-lg font-semibold">Resumen del mes</h2>
+            <Button as-child variant="outline">
+                <Link :href="presupuesto.index()">
+                    <PiggyBank class="size-4" />
+                    Presupuestos
+                </Link>
+            </Button>
+        </div>
+
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div class="rounded-xl border p-4">
                 <div class="flex items-center justify-between">
