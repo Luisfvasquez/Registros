@@ -11,6 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
+ * Un mes de trabajo. Cada período tiene sus propias hojas (compras, ventas,
+ * abonos, gastos…); solo el Directorio se comparte entre todos.
+ *
  * @property int $id
  * @property int $year
  * @property int $month
@@ -46,78 +49,106 @@ class BudgetPeriod extends Model
     }
 
     /**
-     * Rolled-up figures for the monthly report. Everything derives from the
-     * period's lines so the numbers stay consistent no matter how they're edited.
+     * Cifras del mes para el tablero. Todo sale de las filas del período, así que
+     * los números no dependen de por dónde se hayan cargado.
      *
      * @return array{
      *     total_compras: float,
      *     total_ventas: float,
-     *     total_clientes: float,
-     *     ingresos_totales: float,
+     *     costo_ventas: float,
+     *     ganancia_bruta: float,
+     *     pagado_a_proveedores: float,
+     *     cobrado_a_clientes: float,
      *     cuentas_por_pagar: float,
      *     cuentas_por_cobrar: float,
-     *     ganancia_bruta: float,
+     *     gastos: float,
      *     ganancia_registrada: float,
      *     gastos_personales: float,
      *     perdidas_mercancia: float,
-     *     inversiones: float,
      *     utilidad_neta: float,
-     *     estado: string
+     *     estado: string,
+     *     compras: int,
+     *     ventas: int
      * }
      */
     public function summary(): array
     {
-        $lines = $this->relationLoaded('lines') ? $this->lines : $this->lines()->get();
+        $lines = $this->relationLoaded('lines')
+            ? $this->lines
+            : $this->lines()->with('payments')->get();
 
         $inSection = fn (string $section) => $lines->where('section', $section);
 
         $isPaid = fn (BudgetLine $line): bool => strtolower(trim((string) $line->payment_status)) === 'pagado';
 
-        $totalCompras = (float) $inSection(BudgetLine::SECTION_PURCHASE)->sum('precio_total');
-        $totalVentas = (float) $inSection(BudgetLine::SECTION_SALE)->sum('precio_total');
-        $totalClientes = (float) $inSection(BudgetLine::SECTION_CLIENT)->sum('precio_total');
+        $compras = $inSection(BudgetLine::SECTION_PURCHASE);
+        $ventas = $inSection(BudgetLine::SECTION_SALE);
 
-        // A client sale already registered in "ventas" (linked_line_id set on the
-        // venta row) is counted through total_ventas, so it must not be added a
-        // second time here.
-        $linkedClientIds = $inSection(BudgetLine::SECTION_SALE)
-            ->pluck('linked_line_id')
-            ->filter()
-            ->all();
-        $clientesNoRegistrados = (float) $inSection(BudgetLine::SECTION_CLIENT)
-            ->whereNotIn('id', $linkedClientIds)
-            ->sum('precio_total');
+        $totalCompras = (float) $compras->sum('precio_total');
+        $totalVentas = (float) $ventas->sum('precio_total');
+        $costoVentas = (float) $ventas->sum('costo');
+        $gananciaBruta = $totalVentas - $costoVentas;
 
-        $ingresosTotales = $totalVentas + $clientesNoRegistrados;
+        // Lo que falta por pagar o cobrar descuenta los abonos ya registrados.
+        $cuentasPorPagar = (float) $compras->reject($isPaid)->sum('restante');
+        $cuentasPorCobrar = (float) $ventas->reject($isPaid)->sum('restante');
 
-        $cuentasPorPagar = (float) $inSection(BudgetLine::SECTION_PURCHASE)
-            ->reject($isPaid)
-            ->sum('precio_total');
-        $cuentasPorCobrar = (float) $inSection(BudgetLine::SECTION_CLIENT)
-            ->reject($isPaid)
-            ->sum('precio_total');
+        $gastos = (float) $inSection(BudgetLine::SECTION_EXPENSE)->sum('monto');
 
         $resultado = $inSection(BudgetLine::SECTION_RESULT);
         $gananciaRegistrada = (float) $resultado->sum('ganancia');
         $gastosPersonales = (float) $resultado->sum('gastos_personales');
         $perdidasMercancia = (float) $resultado->sum('perdidas_mercancia');
-        $inversiones = (float) $resultado->sum('inversiones');
-        $utilidadNeta = (float) $resultado->sum('total_utilidad');
+
+        $utilidadNeta = $gananciaBruta - $gastos - $gastosPersonales - $perdidasMercancia;
 
         return [
             'total_compras' => round($totalCompras, 2),
             'total_ventas' => round($totalVentas, 2),
-            'total_clientes' => round($totalClientes, 2),
-            'ingresos_totales' => round($ingresosTotales, 2),
+            'costo_ventas' => round($costoVentas, 2),
+            'ganancia_bruta' => round($gananciaBruta, 2),
+            'pagado_a_proveedores' => round((float) $compras->sum('abonado'), 2),
+            'cobrado_a_clientes' => round((float) $ventas->sum('abonado'), 2),
             'cuentas_por_pagar' => round($cuentasPorPagar, 2),
             'cuentas_por_cobrar' => round($cuentasPorCobrar, 2),
-            'ganancia_bruta' => round($ingresosTotales - $totalCompras, 2),
+            'gastos' => round($gastos, 2),
             'ganancia_registrada' => round($gananciaRegistrada, 2),
             'gastos_personales' => round($gastosPersonales, 2),
             'perdidas_mercancia' => round($perdidasMercancia, 2),
-            'inversiones' => round($inversiones, 2),
             'utilidad_neta' => round($utilidadNeta, 2),
             'estado' => $utilidadNeta >= 0 ? 'ganancia' : 'perdida',
+            'compras' => $compras->count(),
+            'ventas' => $ventas->count(),
         ];
+    }
+
+    /**
+     * El período que abre /presupuesto por defecto. Si no hay ninguno marcado,
+     * el más reciente.
+     */
+    public static function active(): ?self
+    {
+        $id = Setting::get(Setting::ACTIVE_PERIOD);
+
+        return ($id ? static::find((int) $id) : null)
+            ?? static::orderByDesc('year')->orderByDesc('month')->first();
+    }
+
+    /**
+     * Primer y último día del período, como `Y-m-d` listos para whereBetween.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public function dateRange(): array
+    {
+        $start = Carbon::create($this->year, $this->month, 1)->startOfMonth();
+
+        // Illuminate\Support\Carbon es mutable: endOfMonth() correría $start.
+        return [$start->toDateString(), $start->copy()->endOfMonth()->toDateString()];
+    }
+
+    public function isActive(): bool
+    {
+        return (int) Setting::get(Setting::ACTIVE_PERIOD) === $this->id;
     }
 }

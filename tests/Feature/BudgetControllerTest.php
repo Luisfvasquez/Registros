@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\BudgetLine;
 use App\Models\BudgetPeriod;
+use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -18,25 +19,82 @@ class BudgetControllerTest extends TestCase
         $this->get(route('presupuesto.index'))->assertRedirect(route('login'));
     }
 
-    public function test_the_workspace_renders_the_selected_period_with_its_lines(): void
+    public function test_the_entry_point_offers_to_create_the_first_period(): void
     {
         $user = User::factory()->create();
-        $period = BudgetPeriod::factory()->create(['year' => 2026, 'month' => 8, 'currency' => 'USD']);
-        BudgetLine::factory()->count(3)->for($period, 'period')->create(['section' => BudgetLine::SECTION_SALE]);
 
-        $response = $this->actingAs($user)->get(route('presupuesto.index', ['period' => $period->id]));
+        $response = $this->actingAs($user)->get(route('presupuesto.index'));
 
         $response->assertOk();
         $response->assertInertia(fn (Assert $page) => $page
-            ->component('presupuesto/Index')
-            ->where('period.id', $period->id)
-            ->has('lines', 3)
-            ->has('summary')
-            ->has('periods', 1)
+            ->component('presupuesto/Empty')
+            ->has('periods', 0)
         );
     }
 
-    public function test_a_period_can_be_created(): void
+    public function test_the_entry_point_opens_the_active_period_dashboard(): void
+    {
+        $user = User::factory()->create();
+        BudgetPeriod::factory()->create(['year' => 2026, 'month' => 7]);
+        $active = BudgetPeriod::factory()->create(['year' => 2026, 'month' => 8]);
+
+        Setting::put(Setting::ACTIVE_PERIOD, (string) $active->id);
+
+        $this->actingAs($user)
+            ->get(route('presupuesto.index'))
+            ->assertRedirect(route('presupuesto.dashboard', $active));
+    }
+
+    public function test_each_sheet_renders_its_own_page_for_the_period(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $sheets = [
+            'presupuesto.dashboard' => 'presupuesto/Dashboard',
+            'presupuesto.directory' => 'presupuesto/Directorio',
+            'presupuesto.purchases' => 'presupuesto/Compras',
+            'presupuesto.sales' => 'presupuesto/Ventas',
+            'presupuesto.expenses' => 'presupuesto/Gastos',
+            'presupuesto.results' => 'presupuesto/Ganancias',
+            'presupuesto.invoices' => 'presupuesto/Facturas',
+            'presupuesto.provider-account' => 'presupuesto/CuentaProveedor',
+            'presupuesto.client-account' => 'presupuesto/CuentaCliente',
+            'presupuesto.daily-sales' => 'presupuesto/VentasDelDia',
+            'presupuesto.purchase-payments' => 'presupuesto/AbonosCompras',
+            'presupuesto.sale-payments' => 'presupuesto/AbonosVentas',
+        ];
+
+        foreach ($sheets as $route => $component) {
+            $this->actingAs($user)
+                ->get(route($route, $period))
+                ->assertOk()
+                ->assertInertia(fn (Assert $page) => $page
+                    ->component($component)
+                    ->where('period.id', $period->id)
+                    ->has('periods', 1)
+                );
+        }
+    }
+
+    public function test_the_purchases_sheet_only_lists_purchase_rows(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        BudgetLine::factory()->count(3)->for($period, 'period')->create();
+        BudgetLine::factory()->for($period, 'period')->sale()->create();
+
+        $this->actingAs($user)
+            ->get(route('presupuesto.purchases', $period))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('presupuesto/Compras')
+                ->has('lines', 3)
+                ->has('summary')
+            );
+    }
+
+    public function test_a_period_can_be_created_and_becomes_the_active_one(): void
     {
         $user = User::factory()->create();
 
@@ -49,263 +107,166 @@ class BudgetControllerTest extends TestCase
 
         $period = BudgetPeriod::firstOrFail();
 
-        $response->assertRedirect(route('presupuesto.index', ['period' => $period->id]));
+        $response->assertRedirect(route('presupuesto.dashboard', $period));
         $this->assertDatabaseHas('budget_periods', [
             'year' => 2026,
             'month' => 9,
             'currency' => 'USD',
             'available_money' => 1500,
         ]);
+        $this->assertSame((string) $period->id, Setting::get(Setting::ACTIVE_PERIOD));
     }
 
-    public function test_a_period_must_be_unique_by_year_month_and_currency(): void
+    public function test_a_duplicate_period_is_rejected(): void
     {
         $user = User::factory()->create();
         BudgetPeriod::factory()->create(['year' => 2026, 'month' => 9, 'currency' => 'USD']);
 
-        $response = $this->actingAs($user)->post(route('presupuesto.periods.store'), [
-            'year' => 2026,
-            'month' => 9,
-            'currency' => 'USD',
-        ]);
+        $this->actingAs($user)
+            ->post(route('presupuesto.periods.store'), [
+                'year' => 2026,
+                'month' => 9,
+                'currency' => 'USD',
+            ])
+            ->assertSessionHasErrors('month');
 
-        $response->assertSessionHasErrors('month');
         $this->assertSame(1, BudgetPeriod::count());
     }
 
-    public function test_period_header_fields_are_updated_inline_as_json(): void
-    {
-        $user = User::factory()->create();
-        $period = BudgetPeriod::factory()->create(['available_money' => 0, 'status' => 'abierto']);
-
-        $response = $this->actingAs($user)->patchJson(route('presupuesto.periods.update', $period), [
-            'available_money' => 800.50,
-            'status' => 'cerrado',
-        ]);
-
-        $response->assertOk()
-            ->assertJsonPath('period.status', 'cerrado')
-            ->assertJsonStructure(['period', 'summary' => ['utilidad_neta', 'ganancia_bruta', 'estado']]);
-
-        $this->assertDatabaseHas('budget_periods', [
-            'id' => $period->id,
-            'available_money' => 800.50,
-            'status' => 'cerrado',
-        ]);
-    }
-
-    public function test_a_line_can_be_added_updated_and_removed_without_a_page_reload(): void
+    public function test_a_period_can_be_marked_active_and_deleted(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
 
-        $created = $this->actingAs($user)->postJson(route('presupuesto.lines.store', $period), [
-            'section' => BudgetLine::SECTION_PURCHASE,
-        ]);
+        $this->actingAs($user)
+            ->post(route('presupuesto.periods.activate', $period))
+            ->assertRedirect();
 
-        $created->assertCreated()->assertJsonPath('line.section', BudgetLine::SECTION_PURCHASE);
-        $lineId = $created->json('line.id');
+        $this->assertSame((string) $period->id, Setting::get(Setting::ACTIVE_PERIOD));
 
-        $updated = $this->actingAs($user)->patchJson(route('presupuesto.lines.update', $lineId), [
-            'fecha' => '2026-09-03',
-            'party_name' => 'Distribuidora Sur',
-            'producto' => 'Arroz',
-            'cantidad' => 10,
-            'unit_price' => 5,
-            'payment_status' => 'Pendiente',
-        ]);
+        $this->actingAs($user)
+            ->delete(route('presupuesto.periods.destroy', $period))
+            ->assertRedirect(route('presupuesto.index'));
 
-        $updated->assertOk()
-            ->assertJsonPath('line.producto', 'Arroz')
-            ->assertJsonPath('line.precio_total', 50)
-            ->assertJsonPath('summary.total_compras', 50)
-            ->assertJsonPath('summary.cuentas_por_pagar', 50);
-
-        $this->assertDatabaseHas('budget_lines', [
-            'id' => $lineId,
-            'producto' => 'Arroz',
-            'cantidad' => 10,
-            'unit_price' => 5,
-        ]);
-
-        $this->actingAs($user)->deleteJson(route('presupuesto.lines.destroy', $lineId))
-            ->assertOk()
-            ->assertJsonPath('summary.total_compras', 0);
-
-        $this->assertDatabaseMissing('budget_lines', ['id' => $lineId]);
+        $this->assertDatabaseMissing('budget_periods', ['id' => $period->id]);
+        $this->assertNull(Setting::get(Setting::ACTIVE_PERIOD));
     }
 
-    public function test_a_line_can_be_created_pre_seeded_with_a_party_and_fecha(): void
+    public function test_a_row_is_created_in_the_period_and_appended_to_its_sheet(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
 
         $response = $this->actingAs($user)->postJson(route('presupuesto.lines.store', $period), [
             'section' => BudgetLine::SECTION_PURCHASE,
-            'party_name' => 'Distribuidora Sur',
             'fecha' => '2026-09-03',
+            'producto' => 'Tomate',
+            'cantidad' => 50,
+            'unit_price' => 0.8,
         ]);
 
-        $response->assertCreated()
-            ->assertJsonPath('line.party_name', 'Distribuidora Sur');
+        $response->assertCreated();
+        $response->assertJsonPath('line.section', BudgetLine::SECTION_PURCHASE);
+        $response->assertJsonPath('line.precio_total', 40);
+        $response->assertJsonPath('line.position', 1);
+        $response->assertJsonPath('summary.total_compras', 40);
 
-        $this->assertDatabaseHas('budget_lines', [
-            'budget_period_id' => $period->id,
-            'section' => BudgetLine::SECTION_PURCHASE,
-            'party_name' => 'Distribuidora Sur',
-            'fecha' => '2026-09-03 00:00:00',
-        ]);
+        $this->assertSame($period->id, BudgetLine::firstOrFail()->budget_period_id);
     }
 
-    public function test_a_client_line_can_be_registered_as_a_sale_and_counted_once(): void
+    public function test_a_directory_row_is_shared_across_periods(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
-        $client = BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_CLIENT,
-            'fecha' => '2026-09-05',
-            'party_name' => 'Comercial X',
-            'producto' => 'Aceite',
-            'cantidad' => 8,
-            'unit_price' => 3,
-            'payment_status' => 'Pendiente',
-        ]);
+        $other = BudgetPeriod::factory()->create(['month' => $period->month === 12 ? 1 : $period->month + 1]);
 
-        $response = $this->actingAs($user)->postJson(route('presupuesto.lines.link-sale', $client));
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_CONTACT,
+                'tipo' => BudgetLine::TYPE_PROVIDER,
+                'party_name' => 'Distribuidora Central',
+                'telefono' => '0414-7654321',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('line.budget_period_id', null)
+            ->assertJsonPath('summary', null);
 
-        $response->assertCreated()
-            ->assertJsonPath('line.section', BudgetLine::SECTION_SALE)
-            ->assertJsonPath('line.linked_line_id', $client->id)
-            ->assertJsonPath('line.producto', 'Aceite')
-            ->assertJsonPath('line.precio_total', 24);
-
-        $this->assertDatabaseHas('budget_lines', [
-            'section' => BudgetLine::SECTION_SALE,
-            'linked_line_id' => $client->id,
-            'producto' => 'Aceite',
-            'cantidad' => 8,
-            'unit_price' => 3,
-        ]);
-
-        $summary = $period->fresh()->summary();
-
-        $this->assertSame(24.0, $summary['total_ventas']);
-        $this->assertSame(24.0, $summary['total_clientes']);
-        $this->assertSame(24.0, $summary['ingresos_totales']);
+        $this->actingAs($user)
+            ->get(route('presupuesto.directory', $other))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('presupuesto/Directorio')
+                ->has('proveedores', 1)
+                ->has('clientes', 0)
+            );
     }
 
-    public function test_updating_a_registered_client_line_syncs_the_sale_row(): void
+    public function test_choosing_a_contact_copies_its_name_and_phone_onto_the_row(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
-        $client = BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_CLIENT,
-            'producto' => 'Aceite',
-            'cantidad' => 8,
-            'unit_price' => 3,
+        $contact = BudgetLine::factory()->contact()->create([
+            'party_name' => 'Proveedor Ejemplo',
+            'telefono' => '0412-1234567',
+        ]);
+        $line = BudgetLine::factory()->for($period, 'period')->create([
+            'party_name' => null,
+            'telefono' => null,
         ]);
 
-        $saleId = $this->actingAs($user)
-            ->postJson(route('presupuesto.lines.link-sale', $client))
-            ->json('line.id');
-
-        $this->actingAs($user)->patchJson(route('presupuesto.lines.update', $client), [
-            'cantidad' => 10,
-            'producto' => 'Aceite premium',
-        ])->assertOk();
-
-        $this->assertDatabaseHas('budget_lines', [
-            'id' => $saleId,
-            'cantidad' => 10,
-            'producto' => 'Aceite premium',
-        ]);
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $line), [
+                'contact_line_id' => $contact->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('line.party_name', 'Proveedor Ejemplo')
+            ->assertJsonPath('line.telefono', '0412-1234567');
     }
 
-    public function test_a_non_client_line_cannot_be_registered_as_a_sale(): void
-    {
-        $user = User::factory()->create();
-        $sale = BudgetLine::factory()->section(BudgetLine::SECTION_SALE)->create();
-
-        $this->actingAs($user)->postJson(route('presupuesto.lines.link-sale', $sale))
-            ->assertStatus(422);
-
-        $this->assertSame(0, BudgetLine::whereNotNull('linked_line_id')->count());
-    }
-
-    public function test_a_client_line_cannot_be_registered_as_a_sale_twice(): void
+    public function test_renaming_a_contact_updates_the_rows_that_point_at_it(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
-        $client = BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_CLIENT,
+        $contact = BudgetLine::factory()->contact()->create(['party_name' => 'Proveedor Ejemplo']);
+        $line = BudgetLine::factory()->for($period, 'period')->create([
+            'contact_line_id' => $contact->id,
+            'party_name' => 'Proveedor Ejemplo',
         ]);
 
-        $this->actingAs($user)->postJson(route('presupuesto.lines.link-sale', $client))->assertCreated();
-        $this->actingAs($user)->postJson(route('presupuesto.lines.link-sale', $client))->assertStatus(422);
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $contact), [
+                'party_name' => 'Proveedor Nuevo',
+                'telefono' => '0424-0000000',
+            ])
+            ->assertOk();
 
-        $this->assertSame(1, BudgetLine::where('linked_line_id', $client->id)->count());
+        $this->assertSame('Proveedor Nuevo', $line->refresh()->party_name);
+        $this->assertSame('0424-0000000', $line->telefono);
     }
 
-    public function test_the_section_of_an_existing_line_cannot_be_changed(): void
+    public function test_the_section_of_an_existing_row_cannot_be_changed(): void
     {
         $user = User::factory()->create();
-        $line = BudgetLine::factory()->section(BudgetLine::SECTION_SALE)->create();
+        $line = BudgetLine::factory()->create();
 
-        $this->actingAs($user)->patchJson(route('presupuesto.lines.update', $line), [
-            'section' => BudgetLine::SECTION_PURCHASE,
-        ])->assertStatus(422);
-
-        $this->assertDatabaseHas('budget_lines', ['id' => $line->id, 'section' => BudgetLine::SECTION_SALE]);
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $line), [
+                'section' => BudgetLine::SECTION_SALE,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('section');
     }
 
-    public function test_deleting_a_period_cascades_to_its_lines(): void
+    public function test_a_row_can_be_deleted(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
-        BudgetLine::factory()->count(2)->for($period, 'period')->create();
+        $line = BudgetLine::factory()->for($period, 'period')->create();
 
-        $this->actingAs($user)->delete(route('presupuesto.periods.destroy', $period))
-            ->assertRedirect(route('presupuesto.index'));
+        $this->actingAs($user)
+            ->deleteJson(route('presupuesto.lines.destroy', $line))
+            ->assertOk()
+            ->assertJsonPath('summary.total_compras', 0);
 
-        $this->assertDatabaseMissing('budget_periods', ['id' => $period->id]);
-        $this->assertSame(0, BudgetLine::count());
-    }
-
-    public function test_the_summary_totals_are_derived_from_the_lines(): void
-    {
-        $period = BudgetPeriod::factory()->create();
-
-        BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_PURCHASE, 'cantidad' => 10, 'unit_price' => 5, 'payment_status' => 'Pagado',
-        ]);
-        BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_PURCHASE, 'cantidad' => 4, 'unit_price' => 10, 'payment_status' => 'Pendiente',
-        ]);
-        BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_SALE, 'cantidad' => 10, 'unit_price' => 12,
-        ]);
-        BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_CLIENT, 'cantidad' => 2, 'unit_price' => 15, 'payment_status' => 'Pendiente',
-        ]);
-        BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_RESULT,
-            'ganancia' => 200, 'gastos_personales' => 50, 'perdidas_mercancia' => 20, 'inversiones' => 30,
-        ]);
-
-        $summary = $period->summary();
-
-        $this->assertSame(90.0, $summary['total_compras']);
-        $this->assertSame(120.0, $summary['total_ventas']);
-        $this->assertSame(30.0, $summary['total_clientes']);
-        $this->assertSame(150.0, $summary['ingresos_totales']);
-        $this->assertSame(40.0, $summary['cuentas_por_pagar']);
-        $this->assertSame(30.0, $summary['cuentas_por_cobrar']);
-        $this->assertSame(60.0, $summary['ganancia_bruta']);
-        $this->assertSame(200.0, $summary['ganancia_registrada']);
-        $this->assertSame(50.0, $summary['gastos_personales']);
-        $this->assertSame(20.0, $summary['perdidas_mercancia']);
-        $this->assertSame(30.0, $summary['inversiones']);
-        $this->assertSame(100.0, $summary['utilidad_neta']);
-        $this->assertSame('ganancia', $summary['estado']);
+        $this->assertDatabaseMissing('budget_lines', ['id' => $line->id]);
     }
 }

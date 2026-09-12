@@ -99,7 +99,26 @@ export type Document = {
     updated_at: string;
 };
 
-export type BudgetSection = 'compra' | 'venta' | 'cliente' | 'resultado';
+export type BudgetSection =
+    'contacto' | 'compra' | 'venta' | 'gasto' | 'resultado' | 'factura';
+
+export type BudgetContactType = 'proveedor' | 'cliente';
+
+export type BudgetLinePayment = {
+    id: number;
+    budget_line_id: number;
+    fecha: string;
+    method: string | null;
+    /** Monto entregado en bolivares, cuando el abono se cargo en Bs. */
+    amount_bs: string | null;
+    /** Tasa usada para convertir `amount_bs` a `amount`. */
+    exchange_rate: string | null;
+    /** Monto en la moneda del periodo: es el que manda para saldos y reportes. */
+    amount: string;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+};
 
 export type BudgetPeriodStatus = 'abierto' | 'cerrado';
 
@@ -120,49 +139,110 @@ export type BudgetPeriodOption = Pick<
     'id' | 'year' | 'month' | 'currency' | 'status'
 >;
 
+/**
+ * Una fila de cualquier hoja de /presupuesto. `section` dice de que hoja es y,
+ * con eso, que columnas de esta fila ancha tienen sentido.
+ */
 export type BudgetLine = {
     id: number;
-    budget_period_id: number;
+    /** Null en el Directorio: proveedores y clientes se comparten entre periodos. */
+    budget_period_id: number | null;
     section: BudgetSection;
+    /** Directorio: proveedor | cliente. Factura: venta | compra. */
+    tipo: string | null;
+    fecha: string | null;
+    /** Fila del Directorio elegida como proveedor o cliente. */
+    contact_line_id: number | null;
+    party_name: string | null;
+    telefono: string | null;
+    categoria: string | null;
+    producto: string | null;
+    descripcion: string | null;
+    cantidad: string | null;
+    unit_price: string | null;
+    /** Costo de la mercancia vendida, solo en ventas. */
+    costo: string | null;
+    /** Monto del gasto, solo en la seccion gasto. */
+    monto: string | null;
+    payment_status: string | null;
+    payment_method: string | null;
+    invoice_number: string | null;
+    ganancia: string | null;
+    gastos_personales: string | null;
+    perdidas_mercancia: string | null;
+    /** En una factura: la compra o venta de la que salio. */
+    linked_line_id: number | null;
+    notas: string | null;
+    position: number;
+    /** Calculado en el servidor: cantidad x precio unitario. */
+    precio_total: number;
+    /** Calculado en el servidor: ganancia - gastos personales - perdidas. */
+    total_utilidad: number;
+    /** Calculado en el servidor: suma de los abonos de la fila. */
+    abonado: number;
+    /** Calculado en el servidor: precio total - abonado. */
+    restante: number;
+    payments?: BudgetLinePayment[];
+    source_line?: BudgetLine | null;
+    created_at: string;
+    updated_at: string;
+};
+
+/** Compra o venta tal como la ve el select de "registro origen" de Facturas. */
+export type BudgetInvoiceSource = {
+    id: number;
+    tipo: 'compra' | 'venta';
+    label: string;
     fecha: string | null;
     party_name: string | null;
     producto: string | null;
     cantidad: string | null;
     unit_price: string | null;
-    payment_status: string | null;
-    payment_method: string | null;
-    ganancia: string | null;
-    gastos_personales: string | null;
-    perdidas_mercancia: string | null;
-    inversiones: string | null;
-    /** Calculado en el servidor: cantidad × precio unitario. */
     precio_total: number;
-    /** Calculado en el servidor: ganancia − gastos − pérdidas − inversiones. */
-    total_utilidad: number;
-    position: number;
-    /**
-     * En una fila `venta` creada desde Relación con clientes: id de la fila
-     * `cliente` de origen. `null` en el resto.
-     */
-    linked_line_id: number | null;
-    created_at: string;
-    updated_at: string;
+    payment_method: string | null;
+    payment_status: string | null;
+    abonado: number;
+    restante: number;
+};
+
+/** Compra o venta tal como la ve el select de las hojas de abonos. */
+export type BudgetPayable = {
+    id: number;
+    label: string;
+    party_name: string | null;
+    contact_line_id: number | null;
+    precio_total: number;
+    abonado: number;
+    restante: number;
 };
 
 export type BudgetSummary = {
     total_compras: number;
     total_ventas: number;
-    total_clientes: number;
-    ingresos_totales: number;
+    costo_ventas: number;
+    ganancia_bruta: number;
+    pagado_a_proveedores: number;
+    cobrado_a_clientes: number;
     cuentas_por_pagar: number;
     cuentas_por_cobrar: number;
-    ganancia_bruta: number;
+    gastos: number;
     ganancia_registrada: number;
     gastos_personales: number;
     perdidas_mercancia: number;
-    inversiones: number;
     utilidad_neta: number;
     estado: 'ganancia' | 'perdida';
+    compras: number;
+    ventas: number;
+};
+
+/** Un punto de las series del tablero (semanal, mensual o anual). */
+export type BudgetSeriesPoint = {
+    label: string;
+    ventas: number;
+    compras: number;
+    costo: number;
+    gastos: number;
+    utilidad: number;
 };
 
 export type PaginatedData<T> = {
