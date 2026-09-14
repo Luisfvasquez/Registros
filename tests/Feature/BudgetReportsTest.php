@@ -262,6 +262,8 @@ class BudgetReportsTest extends TestCase
                 ->has('lines', 1)
                 ->where('lines.0.invoice_number', 'FAC-0001')
                 ->has('lines.0.items', 2)
+                // El ticket que se comparte lista los abonos de cada movimiento.
+                ->has('lines.0.items.0.payments')
                 ->where('lines.0.totales.movimientos', 2)
                 ->where('lines.0.totales.total', 35)
                 ->where('lines.0.totales.abonado', 5)
@@ -270,13 +272,13 @@ class BudgetReportsTest extends TestCase
             );
     }
 
-    public function test_a_purchase_opens_the_invoice_of_its_provider_and_the_next_one_joins_it(): void
+    public function test_creating_a_purchase_does_not_open_an_invoice_on_its_own(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
         $proveedor = BudgetLine::factory()->contact()->create();
 
-        $facturaId = $this->actingAs($user)
+        $this->actingAs($user)
             ->postJson(route('presupuesto.lines.store', $period), [
                 'section' => BudgetLine::SECTION_PURCHASE,
                 'contact_line_id' => $proveedor->id,
@@ -284,12 +286,37 @@ class BudgetReportsTest extends TestCase
                 'unit_price' => 5,
             ])
             ->assertCreated()
-            ->json('line.invoice_line_id');
+            ->assertJsonPath('line.invoice_line_id', null)
+            ->assertJsonPath('invoice', null);
 
-        $this->assertNotNull($facturaId);
+        $this->assertSame(0, BudgetLine::where('section', BudgetLine::SECTION_INVOICE)->count());
+    }
+
+    public function test_the_invoice_is_opened_on_demand_and_the_next_purchase_joins_it(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $proveedor = BudgetLine::factory()->contact()->create();
+
+        $compra = $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_PURCHASE,
+                'contact_line_id' => $proveedor->id,
+                'cantidad' => 2,
+                'unit_price' => 5,
+            ])
+            ->json('line.id');
+
+        // "＋ Nueva factura" sobre esa fila: recién acá nace la factura.
+        $facturaId = $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.store', $period), ['line_id' => $compra])
+            ->assertCreated()
+            ->assertJsonPath('line.invoice_line_id', fn (mixed $id) => $id !== null)
+            ->json('invoice.id');
+
         $this->assertSame('FAC-0001', BudgetLine::find($facturaId)->invoice_number);
 
-        // La segunda compra al mismo proveedor cae en la misma factura.
+        // La segunda compra al mismo proveedor cae sola en esa factura.
         $this->actingAs($user)
             ->postJson(route('presupuesto.lines.store', $period), [
                 'section' => BudgetLine::SECTION_PURCHASE,
@@ -300,10 +327,10 @@ class BudgetReportsTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('line.invoice_line_id', $facturaId);
 
-        // Y otro proveedor abre la suya.
+        // Y otro proveedor, que no tiene factura, queda sin ella.
         $otro = BudgetLine::factory()->contact()->create();
 
-        $tercera = $this->actingAs($user)
+        $this->actingAs($user)
             ->postJson(route('presupuesto.lines.store', $period), [
                 'section' => BudgetLine::SECTION_PURCHASE,
                 'contact_line_id' => $otro->id,
@@ -311,10 +338,39 @@ class BudgetReportsTest extends TestCase
                 'unit_price' => 7,
             ])
             ->assertCreated()
-            ->json('line.invoice_line_id');
+            ->assertJsonPath('line.invoice_line_id', null);
 
-        $this->assertNotSame($facturaId, $tercera);
-        $this->assertSame(2, BudgetLine::where('section', BudgetLine::SECTION_INVOICE)->count());
+        $this->assertSame(1, BudgetLine::where('section', BudgetLine::SECTION_INVOICE)->count());
+    }
+
+    public function test_changing_the_contact_of_a_row_does_not_leave_an_empty_invoice_behind(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $tomas = BudgetLine::factory()->contact()->create(['party_name' => 'Tomas']);
+        $jazmin = BudgetLine::factory()->contact()->create(['party_name' => 'Jazmin']);
+
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice(BudgetLine::SECTION_PURCHASE)->create([
+            'contact_line_id' => $tomas->id,
+            'party_name' => 'Tomas',
+        ]);
+
+        $line = BudgetLine::factory()->for($period, 'period')->create([
+            'contact_line_id' => $tomas->id,
+            'party_name' => 'Tomas',
+            'invoice_line_id' => $factura->id,
+        ]);
+
+        // Se pasa la fila a Jazmin, que no tiene factura: se suelta y no se crea nada.
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $line), [
+                'contact_line_id' => $jazmin->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('line.invoice_line_id', null)
+            ->assertJsonPath('invoice', null);
+
+        $this->assertSame(1, BudgetLine::where('section', BudgetLine::SECTION_INVOICE)->count());
     }
 
     public function test_a_row_without_a_contact_is_not_attached_to_any_invoice(): void

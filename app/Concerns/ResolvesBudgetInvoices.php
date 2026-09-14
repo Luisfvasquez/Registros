@@ -7,18 +7,20 @@ use App\Models\BudgetLine;
 /**
  * Cómo una compra o venta encuentra su factura.
  *
- * La idea es no hacer viajar al admin a la pestaña Facturas: la primera compra a
- * un proveedor abre su factura y las siguientes se cuelgan de esa misma, hasta
- * que él elija otra a mano en la celda "Factura".
+ * Una factura nunca nace sola: la abre el admin desde "＋ Nueva factura". Lo que
+ * sí es automático es engancharse a una que ya exista para ese contacto, para no
+ * hacerlo viajar a la pestaña Facturas por cada fila.
+ *
+ * Esa diferencia importa: si crear la fila abriera una factura, cambiar de
+ * contacto o mover la fila a otra factura iría dejando facturas vacías atrás.
  */
 trait ResolvesBudgetInvoices
 {
     /**
-     * La factura donde va esta compra o venta: la última abierta para ese
-     * contacto en el período, o una nueva. Devuelve null si la fila todavía no
-     * tiene contacto, porque una factura sin proveedor ni cliente no sirve.
+     * La última factura abierta de ese contacto en el período, o null si no hay
+     * ninguna todavía (o si la fila aún no tiene contacto). No crea nada.
      */
-    protected function invoiceFor(BudgetLine $line): ?BudgetLine
+    protected function openInvoiceFor(BudgetLine $line): ?BudgetLine
     {
         if ($line->contact_line_id === null || $line->budget_period_id === null) {
             return null;
@@ -30,8 +32,7 @@ trait ResolvesBudgetInvoices
             ->where('tipo', $line->section)
             ->where('contact_line_id', $line->contact_line_id)
             ->orderByDesc('id')
-            ->first()
-            ?? $this->createInvoiceFor($line);
+            ->first();
     }
 
     /**

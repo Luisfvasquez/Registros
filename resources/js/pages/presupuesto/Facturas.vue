@@ -1,14 +1,7 @@
 <script setup lang="ts">
-import { HandCoins, List } from '@lucide/vue';
+import { HandCoins, Share2 } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { toast } from 'vue-sonner';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
 import invoicesRoutes from '@/routes/presupuesto/invoices';
 import invoicePayments from '@/routes/presupuesto/invoices/payments';
 import lineRoutes from '@/routes/presupuesto/lines';
@@ -19,8 +12,9 @@ import type {
     BudgetPeriodOption,
     BudgetSummary,
 } from '@/types';
+import BudgetShareDialog from './BudgetShareDialog.vue';
 import InvoicePaymentDialog from './InvoicePaymentDialog.vue';
-import { api, firstError, formatDate, formatMoney } from './sheet';
+import { api, firstError, formatDate, formatMoney, periodLabel } from './sheet';
 import SheetLayout from './SheetLayout.vue';
 import SheetTable from './SheetTable.vue';
 import type { SheetColumn, SheetRow } from './SheetTable.vue';
@@ -28,7 +22,7 @@ import type { SheetColumn, SheetRow } from './SheetTable.vue';
 /**
  * Facturas: cada una agrupa las compras o ventas de un proveedor o cliente. Los
  * importes no se escriben acá, salen de esos movimientos; lo que sí se hace es
- * abonar la factura entera y que el monto se reparta entre ellos.
+ * abonar la factura entera y mandársela al contacto.
  */
 const props = defineProps<{
     period: BudgetPeriod;
@@ -44,7 +38,9 @@ const props = defineProps<{
 const rows = ref<BudgetInvoice[]>([...props.lines]);
 const saving = ref(false);
 const abonando = ref<BudgetInvoice | null>(null);
-const viendo = ref<BudgetInvoice | null>(null);
+const compartiendo = ref<BudgetInvoice | null>(null);
+
+const periodo = computed(() => periodLabel(props.period));
 
 const totales = computed(() => ({
     total: rows.value.reduce((sum, row) => sum + row.totales.total, 0),
@@ -89,7 +85,7 @@ const columns = computed<SheetColumn[]>(() => [
         label: 'Movimientos',
         type: 'computed',
         width: '9rem',
-        hint: 'Compras o ventas agrupadas en la factura.',
+        hint: 'Compras o ventas agrupadas en la factura. Desplegá la fila para verlas.',
         value: (row) => (row as unknown as BudgetInvoice).totales.movimientos,
     },
     {
@@ -278,8 +274,9 @@ async function abonar(payload: Record<string, unknown>): Promise<void> {
             :rows="rows as unknown as SheetRow[]"
             :currency="period.currency"
             tone="slate"
+            expandable
             add-label="Agregar factura"
-            empty-text="Sin facturas en este período. Se abren solas al cargar una compra o una venta."
+            empty-text="Sin facturas en este período. Podés abrirlas acá o desde la celda Factura de Compras y Ventas."
             @add="addInvoice"
             @update="update"
             @remove="removeInvoice"
@@ -287,11 +284,11 @@ async function abonar(payload: Record<string, unknown>): Promise<void> {
             <template #row-actions="{ row }">
                 <button
                     type="button"
-                    class="rounded p-1 text-neutral-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                    title="Ver movimientos"
-                    @click="viendo = row as unknown as BudgetInvoice"
+                    class="rounded p-1 text-neutral-400 transition hover:bg-sky-100 hover:text-sky-600 dark:hover:bg-sky-950/40 dark:hover:text-sky-400"
+                    title="Compartir la factura"
+                    @click="compartiendo = row as unknown as BudgetInvoice"
                 >
-                    <List class="size-3.5" />
+                    <Share2 class="size-3.5" />
                 </button>
                 <button
                     type="button"
@@ -301,6 +298,108 @@ async function abonar(payload: Record<string, unknown>): Promise<void> {
                 >
                     <HandCoins class="size-3.5" />
                 </button>
+            </template>
+
+            <template #row-detail="{ row }">
+                <div class="px-3 py-2">
+                    <p
+                        class="mb-1 text-[11px] font-semibold tracking-wide text-neutral-500 uppercase dark:text-neutral-400"
+                    >
+                        Movimientos · se cargan y se editan en
+                        {{
+                            (row as unknown as BudgetInvoice).tipo === 'compra'
+                                ? 'Compras'
+                                : 'Ventas'
+                        }}
+                    </p>
+
+                    <table class="w-full text-[12px]">
+                        <thead
+                            class="text-[10px] text-neutral-500 uppercase dark:text-neutral-400"
+                        >
+                            <tr>
+                                <th class="py-1 pr-3 text-left">Fecha</th>
+                                <th class="py-1 pr-3 text-left">Producto</th>
+                                <th class="py-1 pr-3 text-right">Cantidad</th>
+                                <th class="py-1 pr-3 text-right">
+                                    P. unitario
+                                </th>
+                                <th class="py-1 pr-3 text-right">Total</th>
+                                <th class="py-1 pr-3 text-right">Abono</th>
+                                <th class="py-1 pr-3 text-right">Restante</th>
+                                <th class="py-1 text-left">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr
+                                v-if="
+                                    (row as unknown as BudgetInvoice).items
+                                        .length === 0
+                                "
+                            >
+                                <td
+                                    colspan="8"
+                                    class="py-3 text-center text-neutral-400"
+                                >
+                                    Esta factura todavía no agrupa movimientos.
+                                </td>
+                            </tr>
+                            <tr
+                                v-for="item in (row as unknown as BudgetInvoice)
+                                    .items"
+                                :key="item.id"
+                                class="border-t border-neutral-200 dark:border-neutral-800"
+                            >
+                                <td class="py-1 pr-3">
+                                    {{ formatDate(item.fecha) || '—' }}
+                                </td>
+                                <td class="py-1 pr-3">
+                                    {{ item.producto ?? '—' }}
+                                </td>
+                                <td class="py-1 pr-3 text-right tabular-nums">
+                                    {{ item.cantidad ?? '—' }}
+                                </td>
+                                <td class="py-1 pr-3 text-right tabular-nums">
+                                    {{
+                                        formatMoney(
+                                            item.unit_price,
+                                            period.currency,
+                                        )
+                                    }}
+                                </td>
+                                <td
+                                    class="py-1 pr-3 text-right font-medium tabular-nums"
+                                >
+                                    {{
+                                        formatMoney(
+                                            item.precio_total,
+                                            period.currency,
+                                        )
+                                    }}
+                                </td>
+                                <td class="py-1 pr-3 text-right tabular-nums">
+                                    {{
+                                        formatMoney(
+                                            item.abonado,
+                                            period.currency,
+                                        )
+                                    }}
+                                </td>
+                                <td class="py-1 pr-3 text-right tabular-nums">
+                                    {{
+                                        formatMoney(
+                                            item.restante,
+                                            period.currency,
+                                        )
+                                    }}
+                                </td>
+                                <td class="py-1">
+                                    {{ item.payment_status ?? 'Pendiente' }}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </template>
         </SheetTable>
 
@@ -313,105 +412,11 @@ async function abonar(payload: Record<string, unknown>): Promise<void> {
             @close="abonando = null"
         />
 
-        <Dialog
-            :open="viendo !== null"
-            @update:open="(value) => !value && (viendo = null)"
-        >
-            <DialogContent class="sm:max-w-3xl">
-                <DialogHeader>
-                    <DialogTitle>
-                        {{ viendo?.invoice_number ?? 'Factura' }} ·
-                        {{ viendo?.party_name ?? 'Sin contacto' }}
-                    </DialogTitle>
-                    <DialogDescription>
-                        Los movimientos se cargan y se editan en la hoja de
-                        {{ viendo?.tipo === 'compra' ? 'Compras' : 'Ventas' }}.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div class="max-h-96 overflow-auto">
-                    <table class="w-full text-[13px]">
-                        <thead
-                            class="sticky top-0 bg-neutral-100 text-[11px] uppercase dark:bg-neutral-900"
-                        >
-                            <tr>
-                                <th class="px-2 py-1 text-left">Fecha</th>
-                                <th class="px-2 py-1 text-left">Producto</th>
-                                <th class="px-2 py-1 text-right">Cantidad</th>
-                                <th class="px-2 py-1 text-right">
-                                    P. unitario
-                                </th>
-                                <th class="px-2 py-1 text-right">Total</th>
-                                <th class="px-2 py-1 text-right">Abono</th>
-                                <th class="px-2 py-1 text-right">Restante</th>
-                                <th class="px-2 py-1 text-left">Estado</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-if="(viendo?.items.length ?? 0) === 0">
-                                <td
-                                    colspan="8"
-                                    class="px-2 py-6 text-center text-neutral-400"
-                                >
-                                    Esta factura todavía no agrupa movimientos.
-                                </td>
-                            </tr>
-                            <tr
-                                v-for="item in viendo?.items ?? []"
-                                :key="item.id"
-                                class="border-t border-neutral-100 dark:border-neutral-800"
-                            >
-                                <td class="px-2 py-1">
-                                    {{ formatDate(item.fecha) || '—' }}
-                                </td>
-                                <td class="px-2 py-1">
-                                    {{ item.producto ?? '—' }}
-                                </td>
-                                <td class="px-2 py-1 text-right tabular-nums">
-                                    {{ item.cantidad ?? '—' }}
-                                </td>
-                                <td class="px-2 py-1 text-right tabular-nums">
-                                    {{
-                                        formatMoney(
-                                            item.unit_price,
-                                            period.currency,
-                                        )
-                                    }}
-                                </td>
-                                <td
-                                    class="px-2 py-1 text-right font-medium tabular-nums"
-                                >
-                                    {{
-                                        formatMoney(
-                                            item.precio_total,
-                                            period.currency,
-                                        )
-                                    }}
-                                </td>
-                                <td class="px-2 py-1 text-right tabular-nums">
-                                    {{
-                                        formatMoney(
-                                            item.abonado,
-                                            period.currency,
-                                        )
-                                    }}
-                                </td>
-                                <td class="px-2 py-1 text-right tabular-nums">
-                                    {{
-                                        formatMoney(
-                                            item.restante,
-                                            period.currency,
-                                        )
-                                    }}
-                                </td>
-                                <td class="px-2 py-1">
-                                    {{ item.payment_status ?? 'Pendiente' }}
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </DialogContent>
-        </Dialog>
+        <BudgetShareDialog
+            :invoice="compartiendo"
+            :currency="period.currency"
+            :periodo="periodo"
+            @close="compartiendo = null"
+        />
     </SheetLayout>
 </template>

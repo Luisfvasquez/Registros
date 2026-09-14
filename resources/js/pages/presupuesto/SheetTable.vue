@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Plus, Trash2 } from '@lucide/vue';
-import { computed } from 'vue';
+import { ChevronRight, Plus, Trash2 } from '@lucide/vue';
+import { computed, ref } from 'vue';
 import { formatMoney, formatNumber, num } from './sheet';
 
 export type SheetRow = { id: number } & Record<string, unknown>;
@@ -42,6 +42,11 @@ const props = withDefaults(
         addLabel?: string;
         /** Oculta el botón de agregar cuando el alta necesita un formulario. */
         canAdd?: boolean;
+        /**
+         * Agrega una flecha en el margen para desplegar la fila y mostrar el
+         * slot `row-detail` debajo, a lo ancho de la tabla.
+         */
+        expandable?: boolean;
         emptyText?: string;
         /** Muestra la fila de totales al pie. */
         totals?: boolean;
@@ -53,6 +58,7 @@ const props = withDefaults(
         tone: 'slate',
         addLabel: 'Agregar fila',
         canAdd: true,
+        expandable: false,
         emptyText: 'Sin registros todavía.',
         totals: true,
         maxHeight: 'calc(100vh - 19rem)',
@@ -103,6 +109,21 @@ const TONES: Record<SheetTone, { head: string; band: string; totals: string }> =
     };
 
 const tone = computed(() => TONES[props.tone]);
+
+/** Filas desplegadas, por id. */
+const expanded = ref(new Set<number>());
+
+const isExpanded = (row: SheetRow): boolean => expanded.value.has(row.id);
+
+function toggleRow(row: SheetRow): void {
+    const next = new Set(expanded.value);
+
+    if (!next.delete(row.id)) {
+        next.add(row.id);
+    }
+
+    expanded.value = next;
+}
 
 const optionsFor = (row: SheetRow, column: SheetColumn): SheetOption[] =>
     typeof column.options === 'function'
@@ -235,116 +256,161 @@ function onSelect(row: SheetRow, column: SheetColumn, event: Event): void {
                         </td>
                     </tr>
 
-                    <tr
-                        v-for="(row, index) in rows"
-                        :key="row.id"
-                        class="group hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
-                    >
-                        <th
-                            class="sticky left-0 z-10 border border-r-2 bg-neutral-100 px-1 py-0 text-center text-[11px] font-normal text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400"
-                            :class="tone.band"
-                            scope="row"
+                    <template v-for="(row, index) in rows" :key="row.id">
+                        <tr
+                            class="group hover:bg-neutral-50 dark:hover:bg-neutral-900/60"
                         >
-                            {{ index + 1 }}
-                        </th>
-
-                        <td
-                            v-for="column in columns"
-                            :key="column.key"
-                            class="border p-0 dark:border-neutral-700"
-                            :class="[
-                                tone.band,
-                                isLocked(column)
-                                    ? 'bg-neutral-50/60 dark:bg-neutral-900/40'
-                                    : '',
-                            ]"
-                            :style="{ minWidth: column.width ?? '8rem' }"
-                        >
-                            <select
-                                v-if="
-                                    column.type === 'select' &&
-                                    !isLocked(column)
-                                "
-                                :value="cellValue(row, column)"
-                                class="h-8 w-full bg-transparent px-1.5 outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40 [&>option]:text-neutral-900"
-                                @change="onSelect(row, column, $event)"
+                            <th
+                                class="sticky left-0 z-10 border border-r-2 bg-neutral-100 px-1 py-0 text-center text-[11px] font-normal text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400"
+                                :class="tone.band"
+                                scope="row"
                             >
-                                <option value="">—</option>
-                                <option
-                                    v-for="option in optionsFor(row, column)"
-                                    :key="String(option.value)"
-                                    :value="String(option.value ?? '')"
+                                <span
+                                    v-if="!expandable"
+                                    class="flex h-8 items-center justify-center"
                                 >
-                                    {{ option.label }}
-                                </option>
-                            </select>
-
-                            <input
-                                v-else-if="
-                                    column.type === 'date' && !isLocked(column)
-                                "
-                                type="date"
-                                :value="cellValue(row, column).slice(0, 10)"
-                                class="h-8 w-full bg-transparent px-1.5 outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40"
-                                @change="onText(row, column, $event)"
-                            />
-
-                            <input
-                                v-else-if="
-                                    (column.type === 'money' ||
-                                        column.type === 'number') &&
-                                    !isLocked(column)
-                                "
-                                type="number"
-                                :step="column.type === 'money' ? '0.01' : 'any'"
-                                :value="cellValue(row, column)"
-                                class="h-8 w-full bg-transparent px-1.5 text-right tabular-nums outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40"
-                                @change="onNumberInput(row, column, $event)"
-                            />
-
-                            <input
-                                v-else-if="!isLocked(column)"
-                                type="text"
-                                :list="column.list"
-                                :value="cellValue(row, column)"
-                                class="h-8 w-full bg-transparent px-1.5 outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40"
-                                @change="onText(row, column, $event)"
-                            />
-
-                            <span
-                                v-else
-                                class="flex h-8 items-center px-1.5 text-neutral-700 dark:text-neutral-300"
-                                :class="
-                                    isNumeric(column)
-                                        ? 'justify-end font-medium tabular-nums'
-                                        : ''
-                                "
-                            >
-                                {{ displayValue(row, column) }}
-                            </span>
-                        </td>
-
-                        <td
-                            class="border px-1 text-center dark:border-neutral-700"
-                            :class="tone.band"
-                        >
-                            <div
-                                class="flex items-center justify-center gap-0.5"
-                            >
-                                <slot name="row-actions" :row="row" />
-
+                                    {{ index + 1 }}
+                                </span>
                                 <button
-                                    v-if="!readonly"
+                                    v-else
                                     type="button"
-                                    class="rounded p-1 text-neutral-300 transition group-hover:text-neutral-400 hover:bg-rose-100 hover:text-rose-600 dark:text-neutral-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
-                                    title="Eliminar fila"
-                                    @click="emit('remove', row)"
+                                    class="flex h-8 w-full items-center justify-center gap-0.5 rounded transition hover:text-neutral-900 dark:hover:text-neutral-100"
+                                    :aria-expanded="isExpanded(row)"
+                                    :title="
+                                        isExpanded(row)
+                                            ? 'Ocultar detalle'
+                                            : 'Ver detalle'
+                                    "
+                                    @click="toggleRow(row)"
                                 >
-                                    <Trash2 class="size-3.5" />
+                                    <ChevronRight
+                                        class="size-3 shrink-0 transition-transform"
+                                        :class="
+                                            isExpanded(row) ? 'rotate-90' : ''
+                                        "
+                                    />
+                                    {{ index + 1 }}
                                 </button>
-                            </div>
-                        </td>
-                    </tr>
+                            </th>
+
+                            <td
+                                v-for="column in columns"
+                                :key="column.key"
+                                class="border p-0 dark:border-neutral-700"
+                                :class="[
+                                    tone.band,
+                                    isLocked(column)
+                                        ? 'bg-neutral-50/60 dark:bg-neutral-900/40'
+                                        : '',
+                                ]"
+                                :style="{ minWidth: column.width ?? '8rem' }"
+                            >
+                                <select
+                                    v-if="
+                                        column.type === 'select' &&
+                                        !isLocked(column)
+                                    "
+                                    :value="cellValue(row, column)"
+                                    class="h-8 w-full bg-transparent px-1.5 outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40 [&>option]:text-neutral-900"
+                                    @change="onSelect(row, column, $event)"
+                                >
+                                    <option value="">—</option>
+                                    <option
+                                        v-for="option in optionsFor(
+                                            row,
+                                            column,
+                                        )"
+                                        :key="String(option.value)"
+                                        :value="String(option.value ?? '')"
+                                    >
+                                        {{ option.label }}
+                                    </option>
+                                </select>
+
+                                <input
+                                    v-else-if="
+                                        column.type === 'date' &&
+                                        !isLocked(column)
+                                    "
+                                    type="date"
+                                    :value="cellValue(row, column).slice(0, 10)"
+                                    class="h-8 w-full bg-transparent px-1.5 outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40"
+                                    @change="onText(row, column, $event)"
+                                />
+
+                                <input
+                                    v-else-if="
+                                        (column.type === 'money' ||
+                                            column.type === 'number') &&
+                                        !isLocked(column)
+                                    "
+                                    type="number"
+                                    :step="
+                                        column.type === 'money' ? '0.01' : 'any'
+                                    "
+                                    :value="cellValue(row, column)"
+                                    class="h-8 w-full bg-transparent px-1.5 text-right tabular-nums outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40"
+                                    @change="onNumberInput(row, column, $event)"
+                                />
+
+                                <input
+                                    v-else-if="!isLocked(column)"
+                                    type="text"
+                                    :list="column.list"
+                                    :value="cellValue(row, column)"
+                                    class="h-8 w-full bg-transparent px-1.5 outline-none focus:bg-sky-50 focus:ring-2 focus:ring-sky-400/60 focus:ring-inset dark:focus:bg-sky-950/40"
+                                    @change="onText(row, column, $event)"
+                                />
+
+                                <span
+                                    v-else
+                                    class="flex h-8 items-center px-1.5 text-neutral-700 dark:text-neutral-300"
+                                    :class="
+                                        isNumeric(column)
+                                            ? 'justify-end font-medium tabular-nums'
+                                            : ''
+                                    "
+                                >
+                                    {{ displayValue(row, column) }}
+                                </span>
+                            </td>
+
+                            <td
+                                class="border px-1 text-center dark:border-neutral-700"
+                                :class="tone.band"
+                            >
+                                <div
+                                    class="flex items-center justify-center gap-0.5"
+                                >
+                                    <slot name="row-actions" :row="row" />
+
+                                    <button
+                                        v-if="!readonly"
+                                        type="button"
+                                        class="rounded p-1 text-neutral-300 transition group-hover:text-neutral-400 hover:bg-rose-100 hover:text-rose-600 dark:text-neutral-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
+                                        title="Eliminar fila"
+                                        @click="emit('remove', row)"
+                                    >
+                                        <Trash2 class="size-3.5" />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <tr v-if="expandable && isExpanded(row)">
+                            <td
+                                class="border border-r-2 bg-neutral-100 dark:bg-neutral-900"
+                                :class="tone.band"
+                            ></td>
+                            <td
+                                :colspan="columns.length + 1"
+                                class="border bg-neutral-50 p-0 dark:border-neutral-700 dark:bg-neutral-900/40"
+                                :class="tone.band"
+                            >
+                                <slot name="row-detail" :row="row" />
+                            </td>
+                        </tr>
+                    </template>
                 </tbody>
 
                 <tfoot

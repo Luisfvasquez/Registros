@@ -158,11 +158,12 @@ class DemoDataSeeder extends Seeder
             [...$attributes, 'payment_status' => 'Pendiente', 'position' => ++$position],
         );
 
-        // Igual que en la hoja: la fila se cuelga de la factura del contacto.
+        // En la hoja el admin abre la primera factura de cada contacto a mano y
+        // las filas siguientes se enganchan solas; acá se hace lo mismo.
         if ($line->invoice_line_id === null && $line->contact_line_id !== null) {
-            $invoice = $this->invoiceFor($line);
+            $invoice = $this->openInvoiceFor($line) ?? $this->createInvoiceFor($line);
 
-            $line->forceFill(['invoice_line_id' => $invoice?->id])->save();
+            $line->forceFill(['invoice_line_id' => $invoice->id])->save();
         }
 
         if ($abonado > 0 && $line->payments()->count() === 0) {

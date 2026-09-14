@@ -89,12 +89,10 @@ class LineController extends Controller
     }
 
     /**
-     * Engancha la compra o venta a su factura.
+     * Engancha la compra o venta a la factura que ya exista para su contacto.
      *
-     * Si el admin eligió una a mano en la celda "Factura", se respeta. Si no, la
-     * fila se cuelga de la factura abierta del proveedor o cliente, y si todavía
-     * no hay ninguna se abre una: así no hay que pasar por la pestaña Facturas
-     * para dejar todo enlazado.
+     * Nunca abre una: eso solo pasa cuando el admin toca "＋ Nueva factura". Si
+     * el proveedor todavía no tiene factura, la fila queda sin ella y él decide.
      *
      * @param  array<string, mixed>  $data
      */
@@ -122,7 +120,7 @@ class LineController extends Controller
             return;
         }
 
-        $invoice = $this->invoiceFor($line);
+        $invoice = $this->openInvoiceFor($line);
 
         if ($invoice !== null) {
             $line->forceFill(['invoice_line_id' => $invoice->id])->save();

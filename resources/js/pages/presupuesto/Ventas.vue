@@ -105,7 +105,7 @@ const columns = computed<SheetColumn[]>(() => [
         label: 'Factura',
         type: 'select',
         width: '16rem',
-        hint: 'La primera venta a un cliente abre su factura y las siguientes se cuelgan de esa misma.',
+        hint: 'Si el cliente ya tiene factura, la fila se engancha sola. Si no, abrila con "＋ Nueva factura".',
         options: [
             ...invoices.value.map((invoice) => ({
                 value: invoice.id,
