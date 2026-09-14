@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Budget\AccountController;
+use App\Http\Controllers\Budget\InvoiceController;
 use App\Http\Controllers\Budget\LineController;
 use App\Http\Controllers\Budget\PaymentController;
 use App\Http\Controllers\Budget\PeriodController;
@@ -46,5 +47,9 @@ Route::middleware(['auth', 'verified'])->prefix('presupuesto')->name('presupuest
 
         Route::post('lineas', [LineController::class, 'store'])->name('lines.store');
         Route::post('abonos', [PaymentController::class, 'store'])->name('payments.store');
+
+        Route::post('facturas', [InvoiceController::class, 'store'])->name('invoices.store');
+        Route::post('facturas/{invoice}/abonos', [InvoiceController::class, 'storePayment'])
+            ->name('invoices.payments.store');
     });
 });

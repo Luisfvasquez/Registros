@@ -1,20 +1,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type {
+    BudgetInvoiceOption,
     BudgetLine,
     BudgetPeriod,
     BudgetPeriodOption,
     BudgetSummary,
 } from '@/types';
 import ContactQuickAdd from './ContactQuickAdd.vue';
-import { PAYMENT_METHODS, PAYMENT_STATUSES, useLines } from './sheet';
+import {
+    NEW_INVOICE,
+    PAYMENT_METHODS,
+    PAYMENT_STATUSES,
+    todayISO,
+    usePayableSheet,
+} from './sheet';
 import SheetLayout from './SheetLayout.vue';
 import SheetTable from './SheetTable.vue';
 import type { SheetColumn, SheetRow } from './SheetTable.vue';
 
 /**
- * Hoja de ventas: lo vendido en el mes con su costo, cómo se cobró y a quién.
- * El cliente es opcional: una venta de mostrador no lleva ninguno.
+ * Hoja de ventas: lo vendido en el mes, cómo se cobró y a quién. El cliente es
+ * opcional: una venta de mostrador no lleva ninguno.
  */
 const props = defineProps<{
     period: BudgetPeriod;
@@ -24,16 +31,19 @@ const props = defineProps<{
     clientes: BudgetLine[];
     productos: string[];
     metodos: string[];
+    facturas: BudgetInvoiceOption[];
     summary: BudgetSummary;
 }>();
 
 const summary = ref<BudgetSummary | null>(props.summary);
 const clientes = ref<BudgetLine[]>([...props.clientes]);
 
-const { rows, addRow, patchRow, removeRow } = useLines(
+const { rows, invoices, addRow, update, removeRow } = usePayableSheet(
     props.period.id,
     'venta',
     props.lines,
+    props.facturas,
+    props.period.currency,
     summary,
 );
 
@@ -73,14 +83,6 @@ const columns = computed<SheetColumn[]>(() => [
         value: (row) => (row as unknown as BudgetLine).precio_total,
     },
     {
-        key: 'costo',
-        label: 'Costo de venta',
-        type: 'money',
-        width: '10rem',
-        total: true,
-        hint: 'Lo que costó la mercancía vendida. La ganancia bruta sale de acá.',
-    },
-    {
         key: 'payment_method',
         label: 'Método de pago',
         type: 'text',
@@ -99,11 +101,25 @@ const columns = computed<SheetColumn[]>(() => [
         })),
     },
     {
+        key: 'invoice_line_id',
+        label: 'Factura',
+        type: 'select',
+        width: '16rem',
+        hint: 'La primera venta a un cliente abre su factura y las siguientes se cuelgan de esa misma.',
+        options: [
+            ...invoices.value.map((invoice) => ({
+                value: invoice.id,
+                label: invoice.label,
+            })),
+            { value: NEW_INVOICE, label: '＋ Nueva factura' },
+        ],
+    },
+    {
         key: 'payment_status',
         label: 'Estado del pago',
         type: 'select',
         width: '10rem',
-        hint: 'Se recalcula solo en cuanto la venta tiene abonos.',
+        hint: 'Al marcar Pagado se ofrece asentar el abono que cubre todo el saldo.',
         options: PAYMENT_STATUSES.map((status) => ({
             value: status,
             label: status,
@@ -132,7 +148,8 @@ function addSale(): void {
     const last = rows.value[rows.value.length - 1];
 
     addRow({
-        fecha: last?.fecha ?? new Date().toISOString().slice(0, 10),
+        fecha: last?.fecha ?? todayISO(),
+        contact_line_id: last?.contact_line_id ?? null,
         payment_status: 'Pendiente',
     });
 }
@@ -162,7 +179,7 @@ function addSale(): void {
             empty-text="Todavía no cargaste ventas en este período."
             @add="addSale"
             @update="
-                (row, patch) => patchRow(row as unknown as BudgetLine, patch)
+                (row, patch) => update(row as unknown as BudgetLine, patch)
             "
             @remove="(row) => removeRow(row as unknown as BudgetLine)"
         >

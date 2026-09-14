@@ -50,14 +50,14 @@ const cards = computed(() => [
         tone: 'pink',
     },
     {
-        label: 'Costo de ventas',
-        value: props.summary.costo_ventas,
-        tone: 'slate',
-    },
-    {
         label: 'Ganancia bruta',
         value: props.summary.ganancia_bruta,
         tone: 'emerald',
+    },
+    {
+        label: 'Ganancias y pérdidas',
+        value: props.summary.resultado_utilidad,
+        tone: 'slate',
     },
     { label: 'Gastos', value: props.summary.gastos, tone: 'amber' },
     {

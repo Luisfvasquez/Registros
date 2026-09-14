@@ -33,18 +33,19 @@ class BudgetLineRequest extends FormRequest
             'cantidad' => $money,
             'unit_price' => $money,
             'costo' => $money,
+            'monto_compra' => $money,
+            'monto_venta' => $money,
             'monto' => $money,
             'payment_status' => ['sometimes', 'nullable', 'string', 'max:50'],
             'payment_method' => ['sometimes', 'nullable', 'string', 'max:50'],
             'invoice_number' => ['sometimes', 'nullable', 'string', 'max:50'],
-            'ganancia' => $money,
             'gastos_personales' => $money,
             'perdidas_mercancia' => $money,
-            // Registro origen de una factura: una compra o una venta.
-            'linked_line_id' => [
+            // La factura que agrupa esta compra o venta.
+            'invoice_line_id' => [
                 'sometimes',
                 'nullable',
-                Rule::exists('budget_lines', 'id')->whereIn('section', BudgetLine::PAYABLE_SECTIONS),
+                Rule::exists('budget_lines', 'id')->where('section', BudgetLine::SECTION_INVOICE),
             ],
             'notas' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'position' => ['sometimes', 'integer', 'min:0'],
@@ -58,7 +59,7 @@ class BudgetLineRequest extends FormRequest
     {
         return [
             'contact_line_id' => 'contacto',
-            'linked_line_id' => 'registro origen',
+            'invoice_line_id' => 'factura',
             'party_name' => 'nombre',
             'unit_price' => 'precio unitario',
             'payment_status' => 'estado de pago',

@@ -57,9 +57,23 @@ class BudgetLineFactory extends Factory
 
     public function sale(): static
     {
+        return $this->state(fn () => ['section' => BudgetLine::SECTION_SALE]);
+    }
+
+    /**
+     * Una factura: agrupa las compras o ventas de un contacto.
+     */
+    public function invoice(string $tipo = BudgetLine::SECTION_SALE): static
+    {
         return $this->state(fn () => [
-            'section' => BudgetLine::SECTION_SALE,
-            'costo' => fake()->randomFloat(2, 1, 100),
+            'section' => BudgetLine::SECTION_INVOICE,
+            'tipo' => $tipo,
+            'invoice_number' => 'FAC-'.fake()->unique()->numerify('####'),
+            'producto' => null,
+            'cantidad' => null,
+            'unit_price' => null,
+            'payment_status' => null,
+            'payment_method' => null,
         ]);
     }
 
@@ -87,7 +101,9 @@ class BudgetLineFactory extends Factory
     {
         return $this->state(fn () => [
             'section' => BudgetLine::SECTION_RESULT,
-            'ganancia' => fake()->randomFloat(2, 100, 3000),
+            'monto_compra' => fake()->randomFloat(2, 100, 1000),
+            'monto_venta' => fake()->randomFloat(2, 1000, 3000),
+            'costo' => fake()->randomFloat(2, 0, 200),
             'gastos_personales' => fake()->randomFloat(2, 0, 500),
             'perdidas_mercancia' => fake()->randomFloat(2, 0, 300),
             'party_name' => null,

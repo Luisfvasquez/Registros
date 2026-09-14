@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Budget;
 
+use App\Concerns\ResolvesBudgetInvoices;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\BudgetLineRequest;
 use App\Models\BudgetLine;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\DB;
  */
 class LineController extends Controller
 {
+    use ResolvesBudgetInvoices;
+
     /**
      * Campos que una compra o venta copia del contacto elegido, para que la fila
      * siga siendo legible aunque después se borre del Directorio.
@@ -31,15 +34,24 @@ class LineController extends Controller
         // El Directorio es global: sus filas no cuelgan de ningún período.
         $periodId = $section === BudgetLine::SECTION_CONTACT ? null : $period->id;
 
-        $line = BudgetLine::create([
-            ...$data,
-            'budget_period_id' => $periodId,
-            'section' => $section,
-            'position' => $request->integer('position') ?: $this->nextPosition($section, $periodId),
-        ]);
+        $line = DB::transaction(function () use ($data, $periodId, $section, $request): BudgetLine {
+            $line = BudgetLine::create([
+                ...$data,
+                'budget_period_id' => $periodId,
+                'section' => $section,
+                'position' => $request->integer('position') ?: $this->nextPosition($section, $periodId),
+            ]);
+
+            $this->syncInvoice($line, $data);
+
+            return $line;
+        });
+
+        $line = $line->fresh()->load('payments', 'invoice');
 
         return response()->json([
-            'line' => $line->load('payments'),
+            'line' => $line,
+            'invoice' => $this->invoiceOption($line->invoice),
             'summary' => $periodId === null ? null : $period->summary(),
         ], 201);
     }
@@ -54,10 +66,15 @@ class LineController extends Controller
             if ($line->section === BudgetLine::SECTION_CONTACT) {
                 $this->propagateContact($line, $data);
             }
+
+            $this->syncInvoice($line, $data);
         });
 
+        $fresh = $line->fresh()->load('payments', 'invoice');
+
         return response()->json([
-            'line' => $line->fresh()->load('payments'),
+            'line' => $fresh,
+            'invoice' => $this->invoiceOption($fresh->invoice),
             'summary' => $line->period?->summary(),
         ]);
     }
@@ -69,6 +86,47 @@ class LineController extends Controller
         $line->delete();
 
         return response()->json(['summary' => $period?->summary()]);
+    }
+
+    /**
+     * Engancha la compra o venta a su factura.
+     *
+     * Si el admin eligió una a mano en la celda "Factura", se respeta. Si no, la
+     * fila se cuelga de la factura abierta del proveedor o cliente, y si todavía
+     * no hay ninguna se abre una: así no hay que pasar por la pestaña Facturas
+     * para dejar todo enlazado.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function syncInvoice(BudgetLine $line, array $data): void
+    {
+        if (! in_array($line->section, BudgetLine::PAYABLE_SECTIONS, true)) {
+            return;
+        }
+
+        if (array_key_exists('invoice_line_id', $data)) {
+            return;
+        }
+
+        // Al cambiar de contacto, la factura anterior deja de corresponder. Si
+        // se volvió a elegir el mismo, la fila se queda donde está.
+        if (array_key_exists('contact_line_id', $data) && $line->invoice_line_id !== null) {
+            $invoice = $line->invoice()->first();
+
+            if ($invoice?->contact_line_id !== $line->contact_line_id) {
+                $line->forceFill(['invoice_line_id' => null])->save();
+            }
+        }
+
+        if ($line->invoice_line_id !== null) {
+            return;
+        }
+
+        $invoice = $this->invoiceFor($line);
+
+        if ($invoice !== null) {
+            $line->forceFill(['invoice_line_id' => $invoice->id])->save();
+        }
     }
 
     /**

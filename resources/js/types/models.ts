@@ -153,6 +153,8 @@ export type BudgetLine = {
     fecha: string | null;
     /** Fila del Directorio elegida como proveedor o cliente. */
     contact_line_id: number | null;
+    /** En una compra o venta: la factura que la agrupa. */
+    invoice_line_id: number | null;
     party_name: string | null;
     telefono: string | null;
     categoria: string | null;
@@ -160,49 +162,54 @@ export type BudgetLine = {
     descripcion: string | null;
     cantidad: string | null;
     unit_price: string | null;
-    /** Costo de la mercancia vendida, solo en ventas. */
+    /** Costo de la operacion, en ganancias y perdidas. */
     costo: string | null;
+    /** Monto de compra de la operacion, en ganancias y perdidas. */
+    monto_compra: string | null;
+    /** Monto de venta de la operacion, en ganancias y perdidas. */
+    monto_venta: string | null;
     /** Monto del gasto, solo en la seccion gasto. */
     monto: string | null;
     payment_status: string | null;
     payment_method: string | null;
     invoice_number: string | null;
-    ganancia: string | null;
     gastos_personales: string | null;
     perdidas_mercancia: string | null;
-    /** En una factura: la compra o venta de la que salio. */
-    linked_line_id: number | null;
     notas: string | null;
     position: number;
     /** Calculado en el servidor: cantidad x precio unitario. */
     precio_total: number;
-    /** Calculado en el servidor: ganancia - gastos personales - perdidas. */
+    /** Calculado en el servidor: venta - compra - costo. */
+    utilidad: number;
+    /** Calculado en el servidor: utilidad - gastos personales - perdidas. */
     total_utilidad: number;
     /** Calculado en el servidor: suma de los abonos de la fila. */
     abonado: number;
     /** Calculado en el servidor: precio total - abonado. */
     restante: number;
     payments?: BudgetLinePayment[];
-    source_line?: BudgetLine | null;
     created_at: string;
     updated_at: string;
 };
 
-/** Compra o venta tal como la ve el select de "registro origen" de Facturas. */
-export type BudgetInvoiceSource = {
+/** Una factura con los movimientos que agrupa y los totales que salen de ellos. */
+export type BudgetInvoice = BudgetLine & {
+    items: BudgetLine[];
+    totales: {
+        movimientos: number;
+        cantidad: number;
+        total: number;
+        abonado: number;
+        restante: number;
+        estado: string;
+    };
+};
+
+/** Factura tal como la ve la celda "Factura" de compras y ventas. */
+export type BudgetInvoiceOption = {
     id: number;
-    tipo: 'compra' | 'venta';
     label: string;
-    fecha: string | null;
-    party_name: string | null;
-    producto: string | null;
-    cantidad: string | null;
-    unit_price: string | null;
-    precio_total: number;
-    payment_method: string | null;
-    payment_status: string | null;
-    abonado: number;
-    restante: number;
+    contact_line_id: number | null;
 };
 
 /** Compra o venta tal como la ve el select de las hojas de abonos. */
@@ -219,16 +226,16 @@ export type BudgetPayable = {
 export type BudgetSummary = {
     total_compras: number;
     total_ventas: number;
-    costo_ventas: number;
     ganancia_bruta: number;
     pagado_a_proveedores: number;
     cobrado_a_clientes: number;
     cuentas_por_pagar: number;
     cuentas_por_cobrar: number;
     gastos: number;
-    ganancia_registrada: number;
     gastos_personales: number;
     perdidas_mercancia: number;
+    /** Suma de la columna Total de la hoja de ganancias y perdidas. */
+    resultado_utilidad: number;
     utilidad_neta: number;
     estado: 'ganancia' | 'perdida';
     compras: number;
@@ -240,7 +247,6 @@ export type BudgetSeriesPoint = {
     label: string;
     ventas: number;
     compras: number;
-    costo: number;
     gastos: number;
     utilidad: number;
 };

@@ -23,6 +23,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $tipo
  * @property Carbon|null $fecha
  * @property int|null $contact_line_id
+ * @property int|null $invoice_line_id
  * @property string|null $party_name
  * @property string|null $telefono
  * @property string|null $categoria
@@ -31,26 +32,28 @@ use Illuminate\Support\Carbon;
  * @property float|null $cantidad
  * @property float|null $unit_price
  * @property float|null $costo
+ * @property float|null $monto_compra
+ * @property float|null $monto_venta
  * @property float|null $monto
  * @property string|null $payment_status
  * @property string|null $payment_method
  * @property string|null $invoice_number
- * @property float|null $ganancia
  * @property float|null $gastos_personales
  * @property float|null $perdidas_mercancia
- * @property int|null $linked_line_id
  * @property string|null $notas
  * @property int $position
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read float $precio_total
+ * @property-read float $utilidad
  * @property-read float $total_utilidad
  * @property-read float $abonado
  * @property-read float $restante
  * @property-read Collection<int, BudgetLinePayment> $payments
  * @property-read BudgetPeriod|null $period
  * @property-read BudgetLine|null $contact
- * @property-read BudgetLine|null $sourceLine
+ * @property-read BudgetLine|null $invoice
+ * @property-read Collection<int, BudgetLine> $invoiceLines
  */
 #[Fillable([
     'budget_period_id',
@@ -58,6 +61,7 @@ use Illuminate\Support\Carbon;
     'tipo',
     'fecha',
     'contact_line_id',
+    'invoice_line_id',
     'party_name',
     'telefono',
     'categoria',
@@ -66,14 +70,14 @@ use Illuminate\Support\Carbon;
     'cantidad',
     'unit_price',
     'costo',
+    'monto_compra',
+    'monto_venta',
     'monto',
     'payment_status',
     'payment_method',
     'invoice_number',
-    'ganancia',
     'gastos_personales',
     'perdidas_mercancia',
-    'linked_line_id',
     'notas',
     'position',
 ])]
@@ -125,7 +129,7 @@ class BudgetLine extends Model
     /**
      * @var list<string>
      */
-    protected $appends = ['precio_total', 'total_utilidad', 'abonado', 'restante'];
+    protected $appends = ['precio_total', 'utilidad', 'total_utilidad', 'abonado', 'restante'];
 
     protected function casts(): array
     {
@@ -134,8 +138,9 @@ class BudgetLine extends Model
             'cantidad' => 'decimal:2',
             'unit_price' => 'decimal:2',
             'costo' => 'decimal:2',
+            'monto_compra' => 'decimal:2',
+            'monto_venta' => 'decimal:2',
             'monto' => 'decimal:2',
-            'ganancia' => 'decimal:2',
             'gastos_personales' => 'decimal:2',
             'perdidas_mercancia' => 'decimal:2',
             'position' => 'integer',
@@ -171,15 +176,30 @@ class BudgetLine extends Model
     }
 
     /**
-     * Ganancia − gastos personales − pérdidas de mercancía, para la hoja de
-     * ganancias y pérdidas.
+     * Venta − compra − costo, para la hoja de ganancias y pérdidas.
+     *
+     * @return Attribute<float, never>
+     */
+    protected function utilidad(): Attribute
+    {
+        return Attribute::get(fn (): float => round(
+            (float) $this->monto_venta
+            - (float) $this->monto_compra
+            - (float) $this->costo,
+            2
+        ));
+    }
+
+    /**
+     * Utilidad − gastos personales − pérdidas de mercancía: el total con el que
+     * cierra cada fila de ganancias y pérdidas.
      *
      * @return Attribute<float, never>
      */
     protected function totalUtilidad(): Attribute
     {
         return Attribute::get(fn (): float => round(
-            (float) $this->ganancia
+            $this->utilidad
             - (float) $this->gastos_personales
             - (float) $this->perdidas_mercancia,
             2
@@ -239,13 +259,23 @@ class BudgetLine extends Model
     }
 
     /**
-     * En una factura: la compra o venta de la que se emitió.
+     * En una compra o venta: la factura que la agrupa.
      *
      * @return BelongsTo<BudgetLine, $this>
      */
-    public function sourceLine(): BelongsTo
+    public function invoice(): BelongsTo
     {
-        return $this->belongsTo(BudgetLine::class, 'linked_line_id');
+        return $this->belongsTo(BudgetLine::class, 'invoice_line_id');
+    }
+
+    /**
+     * En una factura: las compras o ventas que agrupa.
+     *
+     * @return HasMany<BudgetLine, $this>
+     */
+    public function invoiceLines(): HasMany
+    {
+        return $this->hasMany(BudgetLine::class, 'invoice_line_id');
     }
 
     /**
@@ -278,6 +308,41 @@ class BudgetLine extends Model
         if ($status !== $this->payment_status) {
             $this->forceFill(['payment_status' => $status])->save();
         }
+    }
+
+    /**
+     * La factura tal como la muestra su hoja: los movimientos que agrupa y los
+     * totales que salen de ellos.
+     *
+     * @return array<string, mixed>
+     */
+    public function toInvoiceArray(): array
+    {
+        $items = $this->relationLoaded('invoiceLines')
+            ? $this->invoiceLines
+            : $this->invoiceLines()->with('payments')->sheetOrder()->get();
+
+        $total = round((float) $items->sum('precio_total'), 2);
+        $abonado = round((float) $items->sum('abonado'), 2);
+        $restante = round($total - $abonado, 2);
+
+        return [
+            ...$this->toArray(),
+            'items' => $items->values()->all(),
+            'totales' => [
+                'movimientos' => $items->count(),
+                'cantidad' => round((float) $items->sum('cantidad'), 2),
+                'total' => $total,
+                'abonado' => $abonado,
+                'restante' => $restante,
+                'estado' => match (true) {
+                    $items->isEmpty() => 'Sin movimientos',
+                    $abonado <= 0 => 'Pendiente',
+                    $restante <= 0.001 => 'Pagada',
+                    default => 'Abonada',
+                },
+            ],
+        ];
     }
 
     /**

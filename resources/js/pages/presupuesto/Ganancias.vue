@@ -6,21 +6,20 @@ import type {
     BudgetPeriodOption,
     BudgetSummary,
 } from '@/types';
-import { formatMoney, useLines } from './sheet';
+import { formatMoney, todayISO, useLines } from './sheet';
 import SheetLayout from './SheetLayout.vue';
 import SheetTable from './SheetTable.vue';
 import type { SheetColumn, SheetRow } from './SheetTable.vue';
 
 /**
- * Ganancias y pérdidas del mes, fila por fila: lo ganado menos lo que se sacó
- * para gastos personales y lo que se perdió en mercancía.
+ * Ganancias y pérdidas del mes, operación por operación: lo que costó, lo que
+ * se vendió y qué quedó después de los gastos personales y las pérdidas.
  */
 const props = defineProps<{
     period: BudgetPeriod;
     periods: BudgetPeriodOption[];
     activePeriodId: number | null;
     lines: BudgetLine[];
-    facturas: string[];
     summary: BudgetSummary;
 }>();
 
@@ -36,20 +35,34 @@ const { rows, addRow, patchRow, removeRow } = useLines(
 const columns = computed<SheetColumn[]>(() => [
     { key: 'fecha', label: 'Fecha', type: 'date', width: '9rem' },
     {
-        key: 'invoice_number',
-        label: 'Factura',
-        type: 'text',
-        width: '11rem',
-        list: 'resultado-facturas',
-        hint: 'Opcional: el nº de factura con el que se registró el movimiento.',
-    },
-    {
-        key: 'ganancia',
-        label: 'Cantidad',
+        key: 'monto_compra',
+        label: 'Compra',
         type: 'money',
         width: '11rem',
         total: true,
-        hint: 'La ganancia del movimiento.',
+    },
+    {
+        key: 'monto_venta',
+        label: 'Venta',
+        type: 'money',
+        width: '11rem',
+        total: true,
+    },
+    {
+        key: 'costo',
+        label: 'Costo',
+        type: 'money',
+        width: '11rem',
+        total: true,
+    },
+    {
+        key: 'utilidad',
+        label: 'Utilidad',
+        type: 'computed',
+        width: '11rem',
+        total: true,
+        hint: 'Venta − compra − costo.',
+        value: (row) => (row as unknown as BudgetLine).utilidad,
     },
     {
         key: 'gastos_personales',
@@ -67,11 +80,11 @@ const columns = computed<SheetColumn[]>(() => [
     },
     {
         key: 'total_utilidad',
-        label: 'Resultado',
+        label: 'Total',
         type: 'computed',
         width: '11rem',
         total: true,
-        hint: 'Cantidad − gastos personales − pérdida de mercancía.',
+        hint: 'Utilidad − gastos personales − pérdida de mercancía.',
         value: (row) => (row as unknown as BudgetLine).total_utilidad,
     },
 ]);
@@ -79,7 +92,7 @@ const columns = computed<SheetColumn[]>(() => [
 function addResult(): void {
     const last = rows.value[rows.value.length - 1];
 
-    addRow({ fecha: last?.fecha ?? new Date().toISOString().slice(0, 10) });
+    addRow({ fecha: last?.fecha ?? todayISO() });
 }
 </script>
 
@@ -93,17 +106,17 @@ function addResult(): void {
     >
         <template #actions>
             <span class="text-sm text-neutral-500 dark:text-neutral-400">
-                Utilidad neta del mes:
+                Total de la hoja:
                 <strong
                     :class="
-                        (summary?.utilidad_neta ?? 0) >= 0
+                        (summary?.resultado_utilidad ?? 0) >= 0
                             ? 'text-emerald-600 dark:text-emerald-400'
                             : 'text-rose-600 dark:text-rose-400'
                     "
                 >
                     {{
                         formatMoney(
-                            summary?.utilidad_neta ?? 0,
+                            summary?.resultado_utilidad ?? 0,
                             period.currency,
                         )
                     }}
@@ -111,17 +124,13 @@ function addResult(): void {
             </span>
         </template>
 
-        <datalist id="resultado-facturas">
-            <option v-for="code in facturas" :key="code" :value="code" />
-        </datalist>
-
         <SheetTable
             :columns="columns"
             :rows="rows as unknown as SheetRow[]"
             :currency="period.currency"
             tone="emerald"
-            add-label="Agregar movimiento"
-            empty-text="Sin movimientos de ganancias y pérdidas."
+            add-label="Agregar operación"
+            empty-text="Sin operaciones cargadas en ganancias y pérdidas."
             @add="addResult"
             @update="
                 (row, patch) => patchRow(row as unknown as BudgetLine, patch)

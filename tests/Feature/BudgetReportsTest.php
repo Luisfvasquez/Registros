@@ -28,7 +28,6 @@ class BudgetReportsTest extends TestCase
         $venta = BudgetLine::factory()->for($period, 'period')->sale()->create([
             'cantidad' => 10,
             'unit_price' => 1.5,
-            'costo' => 8,
             'payment_status' => 'Pendiente',
         ]);
         $venta->payments()->create(['fecha' => '2026-09-04', 'amount' => 7]);
@@ -36,7 +35,9 @@ class BudgetReportsTest extends TestCase
         BudgetLine::factory()->for($period, 'period')->expense()->create(['monto' => 12.5]);
 
         BudgetLine::factory()->for($period, 'period')->result()->create([
-            'ganancia' => 100,
+            'monto_compra' => 100,
+            'monto_venta' => 300,
+            'costo' => 20,
             'gastos_personales' => 30,
             'perdidas_mercancia' => 8,
         ]);
@@ -45,14 +46,16 @@ class BudgetReportsTest extends TestCase
 
         $this->assertSame(40.0, $summary['total_compras']);
         $this->assertSame(15.0, $summary['total_ventas']);
-        $this->assertSame(8.0, $summary['costo_ventas']);
-        $this->assertSame(7.0, $summary['ganancia_bruta']);
+        // 15 − 40
+        $this->assertSame(-25.0, $summary['ganancia_bruta']);
         $this->assertSame(40.0, $summary['cuentas_por_pagar']);
         $this->assertSame(8.0, $summary['cuentas_por_cobrar']);
         $this->assertSame(7.0, $summary['cobrado_a_clientes']);
         $this->assertSame(12.5, $summary['gastos']);
-        // 7 − 12.50 − 30 − 8
-        $this->assertSame(-43.5, $summary['utilidad_neta']);
+        // (300 − 100 − 20) − 30 − 8
+        $this->assertSame(142.0, $summary['resultado_utilidad']);
+        // −25 − 12.50 − 30 − 8
+        $this->assertSame(-75.5, $summary['utilidad_neta']);
         $this->assertSame('perdida', $summary['estado']);
     }
 
@@ -220,30 +223,35 @@ class BudgetReportsTest extends TestCase
             );
     }
 
-    public function test_the_invoices_sheet_offers_the_purchases_and_sales_as_sources(): void
+    public function test_the_invoices_sheet_groups_the_movements_of_each_invoice(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
 
-        $venta = BudgetLine::factory()->for($period, 'period')->sale()->create([
-            'fecha' => '2026-09-04',
-            'producto' => 'Tomate',
+        $cliente = BudgetLine::factory()->contact(BudgetLine::TYPE_CLIENT)->create();
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create([
+            'invoice_number' => 'FAC-0001',
+            'contact_line_id' => $cliente->id,
+            'party_name' => $cliente->party_name,
+        ]);
+
+        $primera = BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
             'cantidad' => 10,
             'unit_price' => 1.5,
         ]);
-        BudgetLine::factory()->for($period, 'period')->create([
-            'cantidad' => 50,
-            'unit_price' => 0.8,
+        $primera->payments()->create(['fecha' => '2026-09-04', 'amount' => 5]);
+
+        BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'cantidad' => 2,
+            'unit_price' => 10,
         ]);
 
-        $factura = BudgetLine::factory()->for($period, 'period')->create([
-            'section' => BudgetLine::SECTION_INVOICE,
-            'tipo' => BudgetLine::SECTION_SALE,
-            'invoice_number' => 'FAC-0001',
-            'linked_line_id' => $venta->id,
-            'producto' => null,
-            'cantidad' => null,
-            'unit_price' => null,
+        // Una venta suelta, sin factura: no tiene que contar.
+        BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'cantidad' => 1,
+            'unit_price' => 99,
         ]);
 
         $this->actingAs($user)
@@ -252,13 +260,179 @@ class BudgetReportsTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('presupuesto/Facturas')
                 ->has('lines', 1)
-                ->where('lines.0.id', $factura->id)
-                ->where('lines.0.source_line.producto', 'Tomate')
-                ->has('sources', 2)
+                ->where('lines.0.invoice_number', 'FAC-0001')
+                ->has('lines.0.items', 2)
+                ->where('lines.0.totales.movimientos', 2)
+                ->where('lines.0.totales.total', 35)
+                ->where('lines.0.totales.abonado', 5)
+                ->where('lines.0.totales.restante', 30)
+                ->where('lines.0.totales.estado', 'Abonada')
             );
     }
 
-    public function test_an_invoice_can_only_point_at_a_purchase_or_a_sale(): void
+    public function test_a_purchase_opens_the_invoice_of_its_provider_and_the_next_one_joins_it(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $proveedor = BudgetLine::factory()->contact()->create();
+
+        $facturaId = $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_PURCHASE,
+                'contact_line_id' => $proveedor->id,
+                'cantidad' => 2,
+                'unit_price' => 5,
+            ])
+            ->assertCreated()
+            ->json('line.invoice_line_id');
+
+        $this->assertNotNull($facturaId);
+        $this->assertSame('FAC-0001', BudgetLine::find($facturaId)->invoice_number);
+
+        // La segunda compra al mismo proveedor cae en la misma factura.
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_PURCHASE,
+                'contact_line_id' => $proveedor->id,
+                'cantidad' => 1,
+                'unit_price' => 3,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('line.invoice_line_id', $facturaId);
+
+        // Y otro proveedor abre la suya.
+        $otro = BudgetLine::factory()->contact()->create();
+
+        $tercera = $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_PURCHASE,
+                'contact_line_id' => $otro->id,
+                'cantidad' => 1,
+                'unit_price' => 7,
+            ])
+            ->assertCreated()
+            ->json('line.invoice_line_id');
+
+        $this->assertNotSame($facturaId, $tercera);
+        $this->assertSame(2, BudgetLine::where('section', BudgetLine::SECTION_INVOICE)->count());
+    }
+
+    public function test_a_row_without_a_contact_is_not_attached_to_any_invoice(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_SALE,
+                'producto' => 'Venta de mostrador',
+                'cantidad' => 1,
+                'unit_price' => 5,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('line.invoice_line_id', null)
+            ->assertJsonPath('invoice', null);
+
+        $this->assertSame(0, BudgetLine::where('section', BudgetLine::SECTION_INVOICE)->count());
+    }
+
+    public function test_an_invoice_payment_is_spread_across_its_movements(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $cliente = BudgetLine::factory()->contact(BudgetLine::TYPE_CLIENT)->create();
+
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create([
+            'contact_line_id' => $cliente->id,
+        ]);
+
+        $primera = BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'fecha' => '2026-09-04',
+            'cantidad' => 1,
+            'unit_price' => 3000,
+            'payment_status' => 'Pendiente',
+        ]);
+        $segunda = BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'fecha' => '2026-09-05',
+            'cantidad' => 1,
+            'unit_price' => 3000,
+            'payment_status' => 'Pendiente',
+        ]);
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.payments.store', [$period, $factura]), [
+                'fecha' => '2026-09-06',
+                'method' => 'Transferencia',
+                'amount' => 4000,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('invoice.totales.abonado', 4000)
+            ->assertJsonPath('invoice.totales.restante', 2000);
+
+        // La primera queda pagada entera y la segunda con 1.000 abonados.
+        $this->assertSame(3000.0, $primera->fresh()->abonado);
+        $this->assertSame('Pagado', $primera->fresh()->payment_status);
+        $this->assertSame(1000.0, $segunda->fresh()->abonado);
+        $this->assertSame('Abonado', $segunda->fresh()->payment_status);
+    }
+
+    public function test_an_invoice_payment_in_bolivares_keeps_the_delivered_total(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create();
+
+        foreach ([100, 100] as $index => $precio) {
+            BudgetLine::factory()->for($period, 'period')->sale()->create([
+                'invoice_line_id' => $factura->id,
+                'fecha' => '2026-09-0'.($index + 4),
+                'cantidad' => 1,
+                'unit_price' => $precio,
+                'payment_status' => 'Pendiente',
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.payments.store', [$period, $factura]), [
+                'fecha' => '2026-09-06',
+                'amount_bs' => 5400,
+                'exchange_rate' => 36,
+            ])
+            ->assertCreated();
+
+        $entregado = $factura->invoiceLines()
+            ->with('payments')
+            ->get()
+            ->flatMap->payments
+            ->sum(fn ($payment) => (float) $payment->amount_bs);
+
+        $this->assertSame(5400.0, $entregado);
+    }
+
+    public function test_an_invoice_payment_cannot_exceed_what_the_invoice_owes(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create();
+
+        BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'cantidad' => 1,
+            'unit_price' => 100,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.payments.store', [$period, $factura]), [
+                'fecha' => '2026-09-06',
+                'amount' => 250,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('amount');
+    }
+
+    public function test_a_row_can_only_be_attached_to_an_invoice_row(): void
     {
         $user = User::factory()->create();
         $period = BudgetPeriod::factory()->create();
@@ -266,11 +440,10 @@ class BudgetReportsTest extends TestCase
 
         $this->actingAs($user)
             ->postJson(route('presupuesto.lines.store', $period), [
-                'section' => BudgetLine::SECTION_INVOICE,
-                'invoice_number' => 'FAC-0002',
-                'linked_line_id' => $gasto->id,
+                'section' => BudgetLine::SECTION_PURCHASE,
+                'invoice_line_id' => $gasto->id,
             ])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('linked_line_id');
+            ->assertJsonValidationErrors('invoice_line_id');
     }
 }

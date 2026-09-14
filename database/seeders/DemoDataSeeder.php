@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Concerns\ResolvesBudgetInvoices;
 use App\Models\BudgetLine;
 use App\Models\BudgetPeriod;
 use App\Models\Setting;
@@ -11,10 +12,13 @@ use Illuminate\Support\Carbon;
 /**
  * Los mismos datos de ejemplo que el cliente ya conoce de la planilla: dos
  * proveedores y dos clientes en el Directorio, compras y ventas con sus abonos,
- * gastos, el resultado del mes y un par de facturas.
+ * gastos y el resultado del mes. Las facturas se abren solas al cargar las
+ * compras y ventas, una por contacto.
  */
 class DemoDataSeeder extends Seeder
 {
+    use ResolvesBudgetInvoices;
+
     private const RATE = 36;
 
     public function run(): void
@@ -35,16 +39,17 @@ class DemoDataSeeder extends Seeder
 
         $position = 0;
 
-        // Compras: pagada, pendiente y abonada con 10.
-        $compra = $this->purchase($period, $position, $today, $proveedorEjemplo, 'Tomate', 50, 0.8, 40);
+        // Compras: pagada, pendiente y abonada con 10. Las dos del mismo
+        // proveedor caen en su factura; la otra abre la suya.
+        $this->purchase($period, $position, $today, $proveedorEjemplo, 'Tomate', 50, 0.8, 40);
         $this->purchase($period, $position, $today, $distribuidora, 'Cebolla', 30, 1, 0);
         $this->purchase($period, $position, $today, $proveedorEjemplo, 'Cebollin', 20, 1.2, 10);
 
         // Ventas: abonada con 7, cobrada entera y pendiente.
-        $venta = $this->sale($period, $position, $today, $clienteEjemplo, 'Tomate', 10, 1.5, 8, 'Efectivo', 7);
-        $this->sale($period, $position, $today, $mariaPerez, 'Cebolla', 5, 2, 5, 'Transferencia', 10);
-        $this->sale($period, $position, $today, $mariaPerez, 'Zanahoria', 8, 1, 6, 'Efectivo', 0);
-        $this->sale($period, $position, $today, null, 'Pimenton', 6, 2.5, 9, 'Efectivo', 15);
+        $this->sale($period, $position, $today, $clienteEjemplo, 'Tomate', 10, 1.5, 'Efectivo', 7);
+        $this->sale($period, $position, $today, $mariaPerez, 'Cebolla', 5, 2, 'Transferencia', 10);
+        $this->sale($period, $position, $today, $mariaPerez, 'Zanahoria', 8, 1, 'Efectivo', 0);
+        $this->sale($period, $position, $today, null, 'Pimenton', 6, 2.5, 'Efectivo', 15);
 
         foreach ([
             ['Transporte', 'Flete del mercado', 12.50],
@@ -65,15 +70,14 @@ class DemoDataSeeder extends Seeder
         $period->lines()->firstOrCreate(
             ['section' => BudgetLine::SECTION_RESULT, 'fecha' => $today->toDateString()],
             [
-                'ganancia' => 120,
+                'monto_compra' => 64,
+                'monto_venta' => 200,
+                'costo' => 16,
                 'gastos_personales' => 30,
                 'perdidas_mercancia' => 8,
                 'position' => ++$position,
             ],
         );
-
-        $this->invoice($period, $position, 'FAC-0001', BudgetLine::SECTION_SALE, $venta);
-        $this->invoice($period, $position, 'FAC-0002', BudgetLine::SECTION_PURCHASE, $compra);
     }
 
     /**
@@ -116,7 +120,6 @@ class DemoDataSeeder extends Seeder
         string $producto,
         float $cantidad,
         float $unitPrice,
-        float $costo,
         string $metodo,
         float $abonado,
     ): BudgetLine {
@@ -128,7 +131,6 @@ class DemoDataSeeder extends Seeder
             'producto' => $producto,
             'cantidad' => $cantidad,
             'unit_price' => $unitPrice,
-            'costo' => $costo,
             'payment_method' => $metodo,
         ], $fecha, $abonado);
     }
@@ -156,6 +158,13 @@ class DemoDataSeeder extends Seeder
             [...$attributes, 'payment_status' => 'Pendiente', 'position' => ++$position],
         );
 
+        // Igual que en la hoja: la fila se cuelga de la factura del contacto.
+        if ($line->invoice_line_id === null && $line->contact_line_id !== null) {
+            $invoice = $this->invoiceFor($line);
+
+            $line->forceFill(['invoice_line_id' => $invoice?->id])->save();
+        }
+
         if ($abonado > 0 && $line->payments()->count() === 0) {
             $line->payments()->create([
                 'fecha' => $fecha->toDateString(),
@@ -167,22 +176,5 @@ class DemoDataSeeder extends Seeder
         }
 
         return $line;
-    }
-
-    private function invoice(
-        BudgetPeriod $period,
-        int &$position,
-        string $numero,
-        string $tipo,
-        BudgetLine $origen,
-    ): void {
-        $period->lines()->firstOrCreate(
-            ['section' => BudgetLine::SECTION_INVOICE, 'invoice_number' => $numero],
-            [
-                'tipo' => $tipo,
-                'linked_line_id' => $origen->id,
-                'position' => ++$position,
-            ],
-        );
     }
 }

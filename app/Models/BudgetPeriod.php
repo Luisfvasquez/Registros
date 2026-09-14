@@ -55,16 +55,15 @@ class BudgetPeriod extends Model
      * @return array{
      *     total_compras: float,
      *     total_ventas: float,
-     *     costo_ventas: float,
      *     ganancia_bruta: float,
      *     pagado_a_proveedores: float,
      *     cobrado_a_clientes: float,
      *     cuentas_por_pagar: float,
      *     cuentas_por_cobrar: float,
      *     gastos: float,
-     *     ganancia_registrada: float,
      *     gastos_personales: float,
      *     perdidas_mercancia: float,
+     *     resultado_utilidad: float,
      *     utilidad_neta: float,
      *     estado: string,
      *     compras: int,
@@ -86,8 +85,7 @@ class BudgetPeriod extends Model
 
         $totalCompras = (float) $compras->sum('precio_total');
         $totalVentas = (float) $ventas->sum('precio_total');
-        $costoVentas = (float) $ventas->sum('costo');
-        $gananciaBruta = $totalVentas - $costoVentas;
+        $gananciaBruta = $totalVentas - $totalCompras;
 
         // Lo que falta por pagar o cobrar descuenta los abonos ya registrados.
         $cuentasPorPagar = (float) $compras->reject($isPaid)->sum('restante');
@@ -95,8 +93,10 @@ class BudgetPeriod extends Model
 
         $gastos = (float) $inSection(BudgetLine::SECTION_EXPENSE)->sum('monto');
 
+        // La hoja de ganancias y pérdidas se carga a mano: de ella solo bajan la
+        // utilidad neta los gastos personales y las pérdidas de mercancía, para
+        // no contar dos veces las compras y ventas que ya están en sus hojas.
         $resultado = $inSection(BudgetLine::SECTION_RESULT);
-        $gananciaRegistrada = (float) $resultado->sum('ganancia');
         $gastosPersonales = (float) $resultado->sum('gastos_personales');
         $perdidasMercancia = (float) $resultado->sum('perdidas_mercancia');
 
@@ -105,16 +105,15 @@ class BudgetPeriod extends Model
         return [
             'total_compras' => round($totalCompras, 2),
             'total_ventas' => round($totalVentas, 2),
-            'costo_ventas' => round($costoVentas, 2),
             'ganancia_bruta' => round($gananciaBruta, 2),
             'pagado_a_proveedores' => round((float) $compras->sum('abonado'), 2),
             'cobrado_a_clientes' => round((float) $ventas->sum('abonado'), 2),
             'cuentas_por_pagar' => round($cuentasPorPagar, 2),
             'cuentas_por_cobrar' => round($cuentasPorCobrar, 2),
             'gastos' => round($gastos, 2),
-            'ganancia_registrada' => round($gananciaRegistrada, 2),
             'gastos_personales' => round($gastosPersonales, 2),
             'perdidas_mercancia' => round($perdidasMercancia, 2),
+            'resultado_utilidad' => round((float) $resultado->sum('total_utilidad'), 2),
             'utilidad_neta' => round($utilidadNeta, 2),
             'estado' => $utilidadNeta >= 0 ? 'ganancia' : 'perdida',
             'compras' => $compras->count(),

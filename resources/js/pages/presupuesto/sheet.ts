@@ -3,9 +3,11 @@ import { ref } from 'vue';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
 import presupuesto from '@/routes/presupuesto';
+import invoicesRoutes from '@/routes/presupuesto/invoices';
 import lines from '@/routes/presupuesto/lines';
 import payments from '@/routes/presupuesto/payments';
 import type {
+    BudgetInvoiceOption,
     BudgetLine,
     BudgetLinePayment,
     BudgetPeriodOption,
@@ -121,6 +123,11 @@ export function formatMoney(
     } catch {
         return `${currency} ${formatNumber(value)}`;
     }
+}
+
+/** Hoy en `YYYY-MM-DD`, que es como viajan las fechas de la planilla. */
+export function todayISO(): string {
+    return new Date().toISOString().slice(0, 10);
 }
 
 export function formatDate(value: string | null | undefined): string {
@@ -250,7 +257,15 @@ export const TABS: SheetTab[] = [
     },
 ];
 
-type LineResponse = { line: BudgetLine; summary: BudgetSummary | null };
+type LineResponse = {
+    line: BudgetLine;
+    /** La factura a la que quedó enganchada la compra o venta, si tiene. */
+    invoice: BudgetInvoiceOption | null;
+    summary: BudgetSummary | null;
+};
+
+/** Aviso de la factura con la que volvió la fila, para refrescar el select. */
+type OnInvoice = (invoice: BudgetInvoiceOption | null) => void;
 type PaymentResponse = {
     payment: BudgetLinePayment;
     line: BudgetLine;
@@ -284,17 +299,24 @@ export function useLines(
         }
     }
 
-    async function addRow(seed: Record<string, unknown> = {}): Promise<void> {
+    async function addRow(
+        seed: Record<string, unknown> = {},
+        onInvoice?: OnInvoice,
+    ): Promise<void> {
         busy.value = true;
 
         try {
-            const { line, summary: next } = await api<LineResponse>(
-                lines.store.url(periodId),
-                'POST',
-                { section, ...seed },
-            );
+            const {
+                line,
+                invoice,
+                summary: next,
+            } = await api<LineResponse>(lines.store.url(periodId), 'POST', {
+                section,
+                ...seed,
+            });
 
             rows.value.push(line);
+            onInvoice?.(invoice);
             applySummary(next);
         } catch (error) {
             toast.error(firstError(error));
@@ -306,19 +328,25 @@ export function useLines(
     async function patchRow(
         row: BudgetLine,
         patch: Record<string, unknown>,
+        onInvoice?: OnInvoice,
     ): Promise<void> {
         const previous = { ...row };
 
         Object.assign(row, patch);
 
         try {
-            const { line, summary: next } = await api<LineResponse>(
+            const {
+                line,
+                invoice,
+                summary: next,
+            } = await api<LineResponse>(
                 lines.update.url(row.id),
                 'PATCH',
                 patch,
             );
 
             replace(line);
+            onInvoice?.(invoice);
             applySummary(next);
         } catch (error) {
             replace(previous as BudgetLine);
@@ -342,7 +370,123 @@ export function useLines(
         }
     }
 
-    return { rows, busy, addRow, patchRow, removeRow };
+    /**
+     * Marca la fila como pagada registrando el abono que cubre todo el saldo,
+     * para que quede asentado en la hoja de abonos y no solo en el select.
+     */
+    async function settleRow(row: BudgetLine): Promise<void> {
+        try {
+            const { line, summary: next } = await api<PaymentResponse>(
+                payments.store.url(periodId),
+                'POST',
+                {
+                    budget_line_id: row.id,
+                    fecha: row.fecha?.slice(0, 10) ?? todayISO(),
+                    method: row.payment_method ?? null,
+                    amount: row.restante,
+                },
+            );
+
+            replace(line);
+            applySummary(next);
+        } catch (error) {
+            toast.error(firstError(error));
+        }
+    }
+
+    return { rows, busy, addRow, patchRow, removeRow, replace, settleRow };
+}
+
+/** Valor de la celda "Factura" que abre una factura nueva para la fila. */
+export const NEW_INVOICE = -1;
+
+/**
+ * Una hoja de compras o de ventas: las filas, sus facturas y las dos cosas que
+ * pasan al editarlas — marcar Pagado ofrece asentar el abono que cubre el saldo,
+ * y elegir "Nueva factura" abre una sin salir de la hoja.
+ */
+export function usePayableSheet(
+    periodId: number,
+    section: 'compra' | 'venta',
+    initialRows: BudgetLine[],
+    initialInvoices: BudgetInvoiceOption[],
+    currency: string,
+    summary?: Ref<BudgetSummary | null>,
+) {
+    const sheet = useLines(periodId, section, initialRows, summary);
+    const invoices = ref<BudgetInvoiceOption[]>([...initialInvoices]);
+
+    function rememberInvoice(option: BudgetInvoiceOption | null): void {
+        if (!option) {
+            return;
+        }
+
+        const index = invoices.value.findIndex((item) => item.id === option.id);
+
+        if (index === -1) {
+            invoices.value.push(option);
+        } else {
+            invoices.value[index] = option;
+        }
+    }
+
+    async function openInvoiceFor(row: BudgetLine): Promise<void> {
+        try {
+            const { option, line } = await api<{
+                option: BudgetInvoiceOption | null;
+                line: BudgetLine | null;
+            }>(invoicesRoutes.store.url(periodId), 'POST', { line_id: row.id });
+
+            rememberInvoice(option);
+
+            if (line) {
+                sheet.replace(line);
+            }
+        } catch (error) {
+            toast.error(firstError(error));
+        }
+    }
+
+    /** Alta de fila: el servidor la engancha a una factura y la devuelve. */
+    async function addRow(seed: Record<string, unknown> = {}): Promise<void> {
+        await sheet.addRow(seed, (option) => rememberInvoice(option));
+    }
+
+    async function update(
+        row: BudgetLine,
+        patch: Record<string, unknown>,
+    ): Promise<void> {
+        if (patch.invoice_line_id === NEW_INVOICE) {
+            await openInvoiceFor(row);
+
+            return;
+        }
+
+        const marcaPagado =
+            patch.payment_status === 'Pagado' && row.restante > 0.001;
+
+        if (marcaPagado) {
+            const monto = formatMoney(row.restante, currency);
+
+            if (confirm(`¿Registrar un abono de pago completo por ${monto}?`)) {
+                await sheet.settleRow(row);
+
+                return;
+            }
+        }
+
+        await sheet.patchRow(row, patch, (option) => rememberInvoice(option));
+    }
+
+    return {
+        rows: sheet.rows,
+        busy: sheet.busy,
+        invoices,
+        addRow,
+        update,
+        removeRow: sheet.removeRow,
+        rememberInvoice,
+    };
 }
 
 /**

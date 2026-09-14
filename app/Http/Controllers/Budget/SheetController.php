@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Budget;
 
 use App\Models\BudgetLine;
+use App\Models\BudgetLinePayment;
 use App\Models\BudgetPeriod;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -52,6 +53,7 @@ class SheetController extends BaseController
             'lines' => $this->linesOf($period, BudgetLine::SECTION_PURCHASE),
             'proveedores' => $this->contacts(BudgetLine::TYPE_PROVIDER),
             'productos' => $this->suggestions('producto'),
+            'facturas' => $this->invoiceOptions($period, BudgetLine::SECTION_PURCHASE),
             'summary' => $period->summary(),
         ]);
     }
@@ -63,6 +65,7 @@ class SheetController extends BaseController
             'clientes' => $this->contacts(BudgetLine::TYPE_CLIENT),
             'productos' => $this->suggestions('producto'),
             'metodos' => $this->suggestions('payment_method'),
+            'facturas' => $this->invoiceOptions($period, BudgetLine::SECTION_SALE),
             'summary' => $period->summary(),
         ]);
     }
@@ -83,30 +86,29 @@ class SheetController extends BaseController
     {
         return $this->sheet('Ganancias', $period, [
             'lines' => $this->linesOf($period, BudgetLine::SECTION_RESULT),
-            'facturas' => $period->lines()
-                ->section(BudgetLine::SECTION_INVOICE)
-                ->whereNotNull('invoice_number')
-                ->orderBy('invoice_number')
-                ->pluck('invoice_number')
-                ->all(),
             'summary' => $period->summary(),
         ]);
     }
 
     /**
-     * Facturas: cada una apunta a una compra o venta y muestra sus datos.
+     * Facturas: cada una agrupa las compras o ventas de un proveedor o cliente,
+     * con los totales que salen de esos movimientos.
      */
     public function invoices(BudgetPeriod $period): Response
     {
-        $lines = $period->lines()
+        $invoices = $period->lines()
             ->section(BudgetLine::SECTION_INVOICE)
-            ->with(['sourceLine.payments'])
+            ->with(['invoiceLines' => fn ($query) => $query->with('payments')->sheetOrder()])
             ->sheetOrder()
-            ->get();
+            ->get()
+            ->map(fn (BudgetLine $invoice): array => $invoice->toInvoiceArray())
+            ->all();
 
         return $this->sheet('Facturas', $period, [
-            'lines' => $lines,
-            'sources' => $this->invoiceSources($period),
+            'lines' => $invoices,
+            'proveedores' => $this->contacts(BudgetLine::TYPE_PROVIDER),
+            'clientes' => $this->contacts(BudgetLine::TYPE_CLIENT),
+            'metodos' => $this->paymentMethods(),
             'summary' => $period->summary(),
         ]);
     }
@@ -124,40 +126,48 @@ class SheetController extends BaseController
     }
 
     /**
-     * Compras y ventas del período con todo lo que la hoja de facturas muestra,
-     * para que el select de "registro origen" traiga los datos ya resueltos.
+     * Facturas del período de un tipo, para la celda "Factura" de la hoja de
+     * compras o de ventas.
      *
-     * @return list<array<string, mixed>>
+     * @return list<array{id: int, label: string, contact_line_id: int|null}>
      */
-    private function invoiceSources(BudgetPeriod $period): array
+    private function invoiceOptions(BudgetPeriod $period, string $tipo): array
     {
         return $period->lines()
-            ->whereIn('section', BudgetLine::PAYABLE_SECTIONS)
-            ->with('payments')
-            ->sheetOrder()
-            ->get()
-            ->map(fn (BudgetLine $line): array => [
-                'id' => $line->id,
-                'tipo' => $line->section,
-                'label' => $line->sheetLabel(),
-                'fecha' => $line->fecha?->toDateString(),
-                'party_name' => $line->party_name,
-                'producto' => $line->producto,
-                'cantidad' => $line->cantidad,
-                'unit_price' => $line->unit_price,
-                'precio_total' => $line->precio_total,
-                'payment_method' => $line->payment_method,
-                'payment_status' => $line->payment_status,
-                'abonado' => $line->abonado,
-                'restante' => $line->restante,
+            ->section(BudgetLine::SECTION_INVOICE)
+            ->where('tipo', $tipo)
+            ->orderBy('invoice_number')
+            ->get(['id', 'section', 'invoice_number', 'party_name', 'contact_line_id'])
+            ->map(fn (BudgetLine $invoice): array => [
+                'id' => $invoice->id,
+                'label' => ($invoice->invoice_number ?? 'Factura').' · '.($invoice->party_name ?? 'Sin contacto'),
+                'contact_line_id' => $invoice->contact_line_id,
             ])
+            ->all();
+    }
+
+    /**
+     * Métodos de pago ya usados en algún abono.
+     *
+     * @return list<string>
+     */
+    private function paymentMethods(): array
+    {
+        return BudgetLinePayment::query()
+            ->whereNotNull('method')
+            ->where('method', '!=', '')
+            ->distinct()
+            ->orderBy('method')
+            ->pluck('method')
+            ->map(fn (mixed $method): string => (string) $method)
+            ->values()
             ->all();
     }
 
     /**
      * Semanas del mes del período.
      *
-     * @return list<array{label: string, ventas: float, compras: float, costo: float, gastos: float, utilidad: float}>
+     * @return list<array{label: string, ventas: float, compras: float, gastos: float, utilidad: float}>
      */
     private function weeklySeries(BudgetPeriod $period): array
     {
@@ -187,7 +197,7 @@ class SheetController extends BaseController
     }
 
     /**
-     * @return list<array{label: string, ventas: float, compras: float, costo: float, gastos: float, utilidad: float}>
+     * @return list<array{label: string, ventas: float, compras: float, gastos: float, utilidad: float}>
      */
     private function monthlySeries(int $year): array
     {
@@ -204,7 +214,7 @@ class SheetController extends BaseController
     }
 
     /**
-     * @return list<array{label: string, ventas: float, compras: float, costo: float, gastos: float, utilidad: float}>
+     * @return list<array{label: string, ventas: float, compras: float, gastos: float, utilidad: float}>
      */
     private function yearlySeries(): array
     {
@@ -227,23 +237,21 @@ class SheetController extends BaseController
     }
 
     /**
-     * @param  array{ventas: array<array-key, float>, compras: array<array-key, float>, costo: array<array-key, float>, gastos: array<array-key, float>}  $totals
-     * @return array{label: string, ventas: float, compras: float, costo: float, gastos: float, utilidad: float}
+     * @param  array{ventas: array<array-key, float>, compras: array<array-key, float>, gastos: array<array-key, float>}  $totals
+     * @return array{label: string, ventas: float, compras: float, gastos: float, utilidad: float}
      */
     private function point(string $label, array $totals, string $key): array
     {
         $ventas = round((float) ($totals['ventas'][$key] ?? 0), 2);
         $compras = round((float) ($totals['compras'][$key] ?? 0), 2);
-        $costo = round((float) ($totals['costo'][$key] ?? 0), 2);
         $gastos = round((float) ($totals['gastos'][$key] ?? 0), 2);
 
         return [
             'label' => $label,
             'ventas' => $ventas,
             'compras' => $compras,
-            'costo' => $costo,
             'gastos' => $gastos,
-            'utilidad' => round($ventas - $costo - $gastos, 2),
+            'utilidad' => round($ventas - $compras - $gastos, 2),
         ];
     }
 
@@ -251,7 +259,7 @@ class SheetController extends BaseController
      * Totales por día plegados al bucket que pida el llamador (semana, mes o año).
      *
      * @param  (callable(Carbon): string)|null  $bucket
-     * @return array{ventas: array<array-key, float>, compras: array<array-key, float>, costo: array<array-key, float>, gastos: array<array-key, float>}
+     * @return array{ventas: array<array-key, float>, compras: array<array-key, float>, gastos: array<array-key, float>}
      */
     private function dailyTotals(string $from, string $to, ?callable $bucket = null): array
     {
@@ -279,7 +287,6 @@ class SheetController extends BaseController
         return [
             'ventas' => $fold($byDay(BudgetLine::SECTION_SALE, 'cantidad * unit_price')),
             'compras' => $fold($byDay(BudgetLine::SECTION_PURCHASE, 'cantidad * unit_price')),
-            'costo' => $fold($byDay(BudgetLine::SECTION_SALE, 'costo')),
             'gastos' => $fold($byDay(BudgetLine::SECTION_EXPENSE, 'monto')),
         ];
     }
