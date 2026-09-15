@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection as SupportCollection;
 
 /**
  * Una fila de cualquiera de las hojas de /presupuesto. `section` dice a qué hoja
@@ -329,6 +330,7 @@ class BudgetLine extends Model
         return [
             ...$this->toArray(),
             'items' => $items->values()->all(),
+            'abonos' => $this->groupedPayments($items),
             'totales' => [
                 'movimientos' => $items->count(),
                 'cantidad' => round((float) $items->sum('cantidad'), 2),
@@ -343,6 +345,41 @@ class BudgetLine extends Model
                 },
             ],
         ];
+    }
+
+    /**
+     * Los abonos de la factura como se hicieron de verdad.
+     *
+     * Un pago contra la factura se guarda repartido entre sus movimientos, pero
+     * para el contacto fue uno solo: las filas que comparten `batch_id` se
+     * suman y se muestran como un abono. Los cargados de a uno van sueltos.
+     *
+     * @param  Collection<int, BudgetLine>  $items
+     * @return list<array<string, mixed>>
+     */
+    private function groupedPayments(Collection $items): array
+    {
+        return $items
+            ->flatMap(fn (BudgetLine $item): iterable => $item->payments)
+            ->groupBy(fn (BudgetLinePayment $payment): string => $payment->batch_id ?? 'x'.$payment->id)
+            ->map(function (SupportCollection $grupo): array {
+                $primero = $grupo->first();
+                $bolivares = round((float) $grupo->sum('amount_bs'), 2);
+
+                return [
+                    'id' => $primero->batch_id ?? (string) $primero->id,
+                    'fecha' => $primero->fecha?->toDateString(),
+                    'method' => $primero->method,
+                    'notes' => $primero->notes,
+                    'amount' => round((float) $grupo->sum('amount'), 2),
+                    'amount_bs' => $bolivares > 0 ? $bolivares : null,
+                    'exchange_rate' => $primero->exchange_rate,
+                    'movimientos' => $grupo->count(),
+                ];
+            })
+            ->sortBy('fecha')
+            ->values()
+            ->all();
     }
 
     /**

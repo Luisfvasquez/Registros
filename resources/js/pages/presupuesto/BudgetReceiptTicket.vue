@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { BudgetInvoice, BudgetLinePayment } from '@/types';
+import type { BudgetInvoice } from '@/types';
 import { formatDate, formatMoney, num } from './sheet';
 
 /**
@@ -19,12 +19,11 @@ const esCompra = computed(() => props.invoice.tipo === 'compra');
 const money = (value: number | string | null | undefined) =>
     formatMoney(value, props.currency);
 
-/** Todos los abonos de la factura, sin importar a qué movimiento entraron. */
-const abonos = computed<BudgetLinePayment[]>(() =>
-    props.invoice.items
-        .flatMap((item) => item.payments ?? [])
-        .sort((a, b) => a.fecha.localeCompare(b.fecha)),
-);
+/**
+ * Los abonos como los hizo el contacto: un pago contra la factura entera es una
+ * sola línea acá, aunque por dentro se haya repartido entre los movimientos.
+ */
+const abonos = computed(() => props.invoice.abonos);
 </script>
 
 <template>

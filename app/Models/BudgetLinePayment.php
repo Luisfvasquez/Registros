@@ -10,10 +10,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * An abono against a purchase, sale or client row of the budget sheet.
+ * Un abono contra una compra o una venta de la planilla.
  *
  * @property int $id
  * @property int $budget_line_id
+ * @property string|null $batch_id
  * @property Carbon $fecha
  * @property string|null $method
  * @property float|null $amount_bs
@@ -25,7 +26,7 @@ use Illuminate\Support\Carbon;
  * @property-read BudgetLine $line
  */
 #[ObservedBy(BudgetLinePaymentObserver::class)]
-#[Fillable(['budget_line_id', 'fecha', 'method', 'amount_bs', 'exchange_rate', 'amount', 'notes'])]
+#[Fillable(['budget_line_id', 'batch_id', 'fecha', 'method', 'amount_bs', 'exchange_rate', 'amount', 'notes'])]
 class BudgetLinePayment extends Model
 {
     protected function casts(): array

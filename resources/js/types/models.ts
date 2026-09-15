@@ -192,9 +192,27 @@ export type BudgetLine = {
     updated_at: string;
 };
 
+/**
+ * Un abono de la factura tal como se hizo: si se cargo contra la factura entera
+ * se repartio entre sus movimientos, pero aca vuelve a ser uno solo.
+ */
+export type BudgetInvoicePayment = {
+    /** El `batch_id` del reparto, o el id del abono suelto. */
+    id: string;
+    fecha: string | null;
+    method: string | null;
+    notes: string | null;
+    amount: number;
+    amount_bs: number | null;
+    exchange_rate: string | null;
+    /** Entre cuantos movimientos se repartio. */
+    movimientos: number;
+};
+
 /** Una factura con los movimientos que agrupa y los totales que salen de ellos. */
 export type BudgetInvoice = BudgetLine & {
     items: BudgetLine[];
+    abonos: BudgetInvoicePayment[];
     totales: {
         movimientos: number;
         cantidad: number;

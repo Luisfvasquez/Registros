@@ -434,6 +434,71 @@ class BudgetReportsTest extends TestCase
         $this->assertSame('Abonado', $segunda->fresh()->payment_status);
     }
 
+    public function test_an_invoice_payment_shows_as_one_abono_even_though_it_is_spread(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create();
+
+        foreach ([3000, 3000, 3000] as $index => $precio) {
+            BudgetLine::factory()->for($period, 'period')->sale()->create([
+                'invoice_line_id' => $factura->id,
+                'fecha' => '2026-09-0'.($index + 1),
+                'cantidad' => 1,
+                'unit_price' => $precio,
+                'payment_status' => 'Pendiente',
+            ]);
+        }
+
+        $abonos = $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.payments.store', [$period, $factura]), [
+                'fecha' => '2026-09-06',
+                'method' => 'Pago móvil',
+                'amount' => 6000,
+            ])
+            ->assertCreated()
+            ->json('invoice.abonos');
+
+        // Por dentro son dos filas de 3.000, pero para el cliente fue un pago.
+        $this->assertCount(1, $abonos);
+        $this->assertSame(6000.0, (float) $abonos[0]['amount']);
+        $this->assertSame('Pago móvil', $abonos[0]['method']);
+        $this->assertSame(2, $abonos[0]['movimientos']);
+        $this->assertSame(2, $factura->invoiceLines()->has('payments')->count());
+    }
+
+    public function test_abonos_loaded_one_by_one_stay_separate_on_the_receipt(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create();
+
+        $venta = BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'cantidad' => 1,
+            'unit_price' => 100,
+            'payment_status' => 'Pendiente',
+        ]);
+
+        foreach ([30, 20] as $monto) {
+            $this->actingAs($user)
+                ->postJson(route('presupuesto.payments.store', $period), [
+                    'budget_line_id' => $venta->id,
+                    'fecha' => '2026-09-06',
+                    'method' => 'Efectivo',
+                    'amount' => $monto,
+                ])
+                ->assertCreated();
+        }
+
+        $this->actingAs($user)
+            ->get(route('presupuesto.invoices', $period))
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('lines.0.abonos', 2)
+                ->where('lines.0.abonos.0.movimientos', 1)
+            );
+    }
+
     public function test_an_invoice_payment_in_bolivares_keeps_the_delivered_total(): void
     {
         $user = User::factory()->create();

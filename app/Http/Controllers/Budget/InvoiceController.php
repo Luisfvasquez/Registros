@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -125,6 +126,8 @@ class InvoiceController extends Controller
         $restanteBs = $rate !== null ? round((float) $data['amount_bs'], 2) : null;
         $porRepartir = $monto;
         $ultimo = $pendientes->count() - 1;
+        // Marca las filas como un mismo pago: el comprobante las muestra juntas.
+        $lote = (string) Str::uuid();
 
         foreach ($pendientes as $index => $line) {
             if ($porRepartir <= 0.001) {
@@ -142,6 +145,7 @@ class InvoiceController extends Controller
             }
 
             $line->payments()->create([
+                'batch_id' => $lote,
                 'fecha' => $data['fecha'],
                 'method' => $data['method'] ?? null,
                 'amount_bs' => $parteBs,
