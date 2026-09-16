@@ -27,7 +27,7 @@ class DemoDataSeeder extends Seeder
 
         $period = BudgetPeriod::firstOrCreate(
             ['year' => $today->year, 'month' => $today->month, 'currency' => 'USD'],
-            ['status' => 'abierto', 'available_money' => 100, 'notes' => 'Datos de ejemplo.'],
+            ['status' => 'abierto', 'notes' => 'Datos de ejemplo.'],
         );
 
         Setting::put(Setting::ACTIVE_PERIOD, (string) $period->id);

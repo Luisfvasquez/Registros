@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\BudgetLine;
 use App\Models\BudgetPeriod;
+use App\Models\ExchangeRate;
 use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -102,7 +103,6 @@ class BudgetControllerTest extends TestCase
             'year' => 2026,
             'month' => 9,
             'currency' => 'usd',
-            'available_money' => 1500,
         ]);
 
         $period = BudgetPeriod::firstOrFail();
@@ -112,7 +112,6 @@ class BudgetControllerTest extends TestCase
             'year' => 2026,
             'month' => 9,
             'currency' => 'USD',
-            'available_money' => 1500,
         ]);
         $this->assertSame((string) $period->id, Setting::get(Setting::ACTIVE_PERIOD));
     }
@@ -254,6 +253,116 @@ class BudgetControllerTest extends TestCase
             ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('section');
+    }
+
+    public function test_a_price_typed_in_dollars_fills_the_bolivar_one(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        ExchangeRate::create([
+            'currency_from' => 'USD',
+            'currency_to' => 'VES',
+            'rate' => 40,
+            'date' => '2026-09-16',
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_PURCHASE,
+                'cantidad' => 2,
+                'unit_price' => 30,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('line.unit_price_bs', '1200.00')
+            ->assertJsonPath('line.exchange_rate', '40.0000')
+            ->assertJsonPath('line.precio_total', 60)
+            ->assertJsonPath('line.precio_total_bs', 2400);
+    }
+
+    public function test_a_price_typed_in_bolivares_fills_the_dollar_one(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        ExchangeRate::create([
+            'currency_from' => 'USD',
+            'currency_to' => 'VES',
+            'rate' => 40,
+            'date' => '2026-09-16',
+            'is_active' => true,
+        ]);
+
+        $line = BudgetLine::factory()->for($period, 'period')->create([
+            'cantidad' => 3,
+            'unit_price' => null,
+            'unit_price_bs' => null,
+            'exchange_rate' => null,
+        ]);
+
+        // Lo que se vende en bolívares: el precio en la moneda del período sale
+        // de la conversión, y los totales siguen saliendo de él.
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $line), [
+                'unit_price_bs' => 800,
+            ])
+            ->assertOk()
+            ->assertJsonPath('line.unit_price', '20.00')
+            ->assertJsonPath('line.exchange_rate', '40.0000')
+            ->assertJsonPath('line.precio_total', 60);
+    }
+
+    public function test_a_row_keeps_its_own_rate_instead_of_the_one_of_the_day(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        ExchangeRate::create([
+            'currency_from' => 'USD',
+            'currency_to' => 'VES',
+            'rate' => 50,
+            'date' => '2026-09-16',
+            'is_active' => true,
+        ]);
+
+        // La compra se cargó cuando el dólar estaba a 36.
+        $line = BudgetLine::factory()->for($period, 'period')->create([
+            'cantidad' => 1,
+            'unit_price' => 10,
+            'unit_price_bs' => 360,
+            'exchange_rate' => 36,
+        ]);
+
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $line), ['unit_price' => 20])
+            ->assertOk()
+            ->assertJsonPath('line.unit_price_bs', '720.00')
+            ->assertJsonPath('line.exchange_rate', '36.0000');
+
+        // Corregir la tasa sí rehace los bolívares.
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $line), ['exchange_rate' => 50])
+            ->assertOk()
+            ->assertJsonPath('line.unit_price', '20.00')
+            ->assertJsonPath('line.unit_price_bs', '1000.00');
+    }
+
+    public function test_without_an_active_rate_the_price_is_stored_as_typed(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_SALE,
+                'cantidad' => 1,
+                'unit_price' => 15,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('line.unit_price', '15.00')
+            ->assertJsonPath('line.unit_price_bs', null)
+            ->assertJsonPath('line.exchange_rate', null);
     }
 
     public function test_a_row_can_be_deleted(): void

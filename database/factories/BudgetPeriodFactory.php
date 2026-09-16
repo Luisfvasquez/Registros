@@ -20,7 +20,6 @@ class BudgetPeriodFactory extends Factory
             'month' => fake()->numberBetween(1, 12),
             'currency' => fake()->randomElement(['USD', 'VES', 'EUR']),
             'status' => 'abierto',
-            'available_money' => fake()->randomFloat(2, 0, 5000),
             'notes' => null,
         ];
     }

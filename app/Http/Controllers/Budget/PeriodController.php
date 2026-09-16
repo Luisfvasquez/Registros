@@ -35,7 +35,7 @@ class PeriodController extends BaseController
     public function store(BudgetPeriodRequest $request): RedirectResponse
     {
         $period = BudgetPeriod::create($request->safe()->only([
-            'year', 'month', 'currency', 'status', 'available_money', 'notes',
+            'year', 'month', 'currency', 'status', 'notes',
         ]));
 
         // El primer período del sistema arranca como activo: si no, no habría
@@ -52,7 +52,7 @@ class PeriodController extends BaseController
     public function update(BudgetPeriodRequest $request, BudgetPeriod $period): RedirectResponse
     {
         $period->update($request->safe()->only([
-            'year', 'month', 'currency', 'status', 'available_money', 'notes',
+            'year', 'month', 'currency', 'status', 'notes',
         ]));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Período actualizado.')]);

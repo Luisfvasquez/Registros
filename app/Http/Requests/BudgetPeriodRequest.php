@@ -23,7 +23,6 @@ class BudgetPeriodRequest extends FormRequest
             'month' => [$required, 'integer', 'between:1,12'],
             'currency' => [$required, 'string', 'size:3'],
             'status' => ['sometimes', Rule::in(['abierto', 'cerrado'])],
-            'available_money' => ['sometimes', 'numeric', 'between:-999999999999,999999999999'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ];
     }

@@ -128,7 +128,6 @@ export type BudgetPeriod = {
     month: number;
     currency: string;
     status: BudgetPeriodStatus;
-    available_money: string;
     notes: string | null;
     created_at: string;
     updated_at: string;
@@ -162,6 +161,10 @@ export type BudgetLine = {
     descripcion: string | null;
     cantidad: string | null;
     unit_price: string | null;
+    /** Precio unitario en bolivares: el espejo de `unit_price`. */
+    unit_price_bs: string | null;
+    /** Bs por unidad de la moneda del periodo con que se convirtio la fila. */
+    exchange_rate: string | null;
     /** Costo de la operacion, en ganancias y perdidas. */
     costo: string | null;
     /** Monto de compra de la operacion, en ganancias y perdidas. */
@@ -179,6 +182,8 @@ export type BudgetLine = {
     position: number;
     /** Calculado en el servidor: cantidad x precio unitario. */
     precio_total: number;
+    /** Calculado en el servidor: cantidad x precio unitario en bolivares. */
+    precio_total_bs: number;
     /** Calculado en el servidor: venta - compra - costo. */
     utilidad: number;
     /** Calculado en el servidor: utilidad - gastos personales - perdidas. */

@@ -16,7 +16,6 @@ const form = useForm({
     year: today.getFullYear(),
     month: today.getMonth() + 1,
     currency: 'USD',
-    available_money: 0,
     notes: '',
 });
 </script>
@@ -83,17 +82,6 @@ const form = useForm({
                             class="h-9 rounded border border-neutral-300 bg-white px-2 uppercase dark:border-neutral-700 dark:bg-neutral-950"
                         />
                         <InputError :message="form.errors.currency" />
-                    </label>
-
-                    <label class="grid gap-1 text-sm">
-                        <span class="font-medium">Dinero disponible</span>
-                        <input
-                            v-model.number="form.available_money"
-                            type="number"
-                            step="0.01"
-                            class="h-9 rounded border border-neutral-300 bg-white px-2 text-right dark:border-neutral-700 dark:bg-neutral-950"
-                        />
-                        <InputError :message="form.errors.available_money" />
                     </label>
                 </div>
 

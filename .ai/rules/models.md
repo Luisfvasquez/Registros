@@ -31,3 +31,11 @@ La relación va de la compra/venta hacia la factura: `budget_lines.invoice_line_
 - `Budget\InvoiceController::storePayment` reparte un abono entre los movimientos pendientes, del más viejo al más nuevo. Si el pago vino en bolívares se reparten los bolívares y el último movimiento se queda con el resto, así la suma entregada queda exacta.
 - Ese reparto marca las filas con un mismo `budget_line_payments.batch_id`. Por dentro son varios abonos (uno por movimiento, para que cada saldo cierre), pero para el contacto fue un solo pago: `toInvoiceArray()['abonos']` las vuelve a juntar por `batch_id` y es lo que muestra el comprobante. Los abonos cargados de a uno desde las hojas de Abonos van sin batch y salen sueltos. No listes `items[].payments` en un comprobante: ahí se ven las partes, no el pago.
 - En la hoja de ganancias y pérdidas cada fila lleva `monto_compra`, `monto_venta` y `costo`; `utilidad` y `total_utilidad` son accesores, no columnas. Esa hoja se carga a mano y solo baja la utilidad neta del período por gastos personales y pérdidas, para no contar dos veces lo que ya está en Compras y Ventas.
+
+## Compras y ventas llevan el precio en las dos monedas
+Una compra o venta guarda `unit_price` (moneda del período), `unit_price_bs` y la `exchange_rate` con que se convirtieron. El admin escribe uno solo: `App\Observers\BudgetLineObserver` completa el otro mirando qué campo quedó `isDirty()`.
+
+- La tasa sale de `ExchangeRate::activeRate()` (`exchange_rates.rate` con `is_active`, Bs por dólar) SOLO cuando la fila todavía no tiene una. Una fila vieja conserva su tasa: editar su precio no lo reconvierte al dólar de hoy, que cambiaría lo que de verdad se pagó.
+- Cambiar `exchange_rate` a mano rehace `unit_price_bs` desde `unit_price`.
+- Saldos, abonos, cuentas y tablero siguen calculándose sobre `unit_price`. Los bolívares son espejo: `precio_total_bs` es un accesor, nadie suma por ahí. No metas los bolívares en `BudgetPeriod::summary()`.
+- Sin tasa activa el observador no toca nada: se guarda lo que se escribió y la otra columna queda vacía.

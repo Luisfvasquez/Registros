@@ -11,7 +11,9 @@ import ContactQuickAdd from './ContactQuickAdd.vue';
 import {
     NEW_INVOICE,
     PAYMENT_STATUSES,
+    formatBs,
     todayISO,
+    useActiveRate,
     usePayableSheet,
 } from './sheet';
 import SheetLayout from './SheetLayout.vue';
@@ -44,6 +46,8 @@ const { rows, invoices, addRow, update, removeRow } = usePayableSheet(
     props.period.currency,
     summary,
 );
+
+const rate = useActiveRate();
 
 const columns = computed<SheetColumn[]>(() => [
     { key: 'fecha', label: 'Fecha', type: 'date', width: '9rem' },
@@ -90,6 +94,21 @@ const columns = computed<SheetColumn[]>(() => [
         label: 'Precio unitario',
         type: 'money',
         width: '10rem',
+        hint: 'Escribí este o el de bolívares: el otro se completa con la tasa.',
+    },
+    {
+        key: 'unit_price_bs',
+        label: 'Precio unitario Bs',
+        type: 'money',
+        width: '11rem',
+        hint: 'Para lo que se compra en bolívares. Se convierte a la moneda del período con la tasa de la fila.',
+    },
+    {
+        key: 'exchange_rate',
+        label: 'Tasa (Bs)',
+        type: 'number',
+        width: '9rem',
+        hint: 'La tasa con que se convirtió esta fila. Al cambiarla se recalculan los bolívares.',
     },
     {
         key: 'precio_total',
@@ -99,6 +118,15 @@ const columns = computed<SheetColumn[]>(() => [
         total: true,
         hint: 'Cantidad × precio unitario.',
         value: (row) => (row as unknown as BudgetLine).precio_total,
+    },
+    {
+        key: 'precio_total_bs',
+        label: 'Precio total Bs',
+        type: 'computed',
+        width: '11rem',
+        total: true,
+        hint: 'Cantidad × precio unitario en bolívares.',
+        value: (row) => (row as unknown as BudgetLine).precio_total_bs,
     },
     {
         key: 'payment_status',
@@ -150,6 +178,22 @@ function addPurchase(): void {
         tab="purchases"
         title="Compras"
     >
+        <template #actions>
+            <span
+                v-if="rate"
+                class="text-sm text-neutral-500 dark:text-neutral-400"
+            >
+                Tasa del día:
+                <strong class="text-neutral-900 dark:text-neutral-100">
+                    {{ formatBs(rate) }}
+                </strong>
+            </span>
+            <span v-else class="text-sm text-amber-600 dark:text-amber-400">
+                Sin tasa activa: cargá una en Tasa de cambio para convertir a
+                bolívares.
+            </span>
+        </template>
+
         <datalist id="compras-productos">
             <option v-for="name in productos" :key="name" :value="name" />
         </datalist>

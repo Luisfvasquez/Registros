@@ -1,5 +1,5 @@
-import { router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { router, usePage } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
 import presupuesto from '@/routes/presupuesto';
@@ -123,6 +123,24 @@ export function formatMoney(
     } catch {
         return `${currency} ${formatNumber(value)}`;
     }
+}
+
+export function formatBs(value: string | number | null | undefined): string {
+    return `Bs ${formatNumber(value)}`;
+}
+
+/**
+ * La tasa del día, que el sistema comparte con todas las páginas. Es la que se
+ * usa para completar el precio que falta cuando la fila todavía no tiene una.
+ */
+export function useActiveRate() {
+    const page = usePage();
+
+    return computed<number | null>(() => {
+        const rate = Number(page.props.exchangeRate ?? 0);
+
+        return Number.isFinite(rate) && rate > 0 ? rate : null;
+    });
 }
 
 /** Hoy en `YYYY-MM-DD`, que es como viajan las fechas de la planilla. */

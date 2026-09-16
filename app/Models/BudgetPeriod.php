@@ -19,13 +19,12 @@ use Illuminate\Support\Carbon;
  * @property int $month
  * @property string $currency
  * @property string $status
- * @property float $available_money
  * @property string|null $notes
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, BudgetLine> $lines
  */
-#[Fillable(['year', 'month', 'currency', 'status', 'available_money', 'notes'])]
+#[Fillable(['year', 'month', 'currency', 'status', 'notes'])]
 class BudgetPeriod extends Model
 {
     /** @use HasFactory<BudgetPeriodFactory> */
@@ -36,7 +35,6 @@ class BudgetPeriod extends Model
         return [
             'year' => 'integer',
             'month' => 'integer',
-            'available_money' => 'decimal:2',
         ];
     }
 

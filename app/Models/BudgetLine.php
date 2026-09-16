@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Observers\BudgetLineObserver;
 use Database\Factories\BudgetLineFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection;
@@ -32,6 +34,8 @@ use Illuminate\Support\Collection as SupportCollection;
  * @property string|null $descripcion
  * @property float|null $cantidad
  * @property float|null $unit_price
+ * @property float|null $unit_price_bs
+ * @property float|null $exchange_rate
  * @property float|null $costo
  * @property float|null $monto_compra
  * @property float|null $monto_venta
@@ -46,6 +50,7 @@ use Illuminate\Support\Collection as SupportCollection;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read float $precio_total
+ * @property-read float $precio_total_bs
  * @property-read float $utilidad
  * @property-read float $total_utilidad
  * @property-read float $abonado
@@ -56,6 +61,7 @@ use Illuminate\Support\Collection as SupportCollection;
  * @property-read BudgetLine|null $invoice
  * @property-read Collection<int, BudgetLine> $invoiceLines
  */
+#[ObservedBy(BudgetLineObserver::class)]
 #[Fillable([
     'budget_period_id',
     'section',
@@ -70,6 +76,8 @@ use Illuminate\Support\Collection as SupportCollection;
     'descripcion',
     'cantidad',
     'unit_price',
+    'unit_price_bs',
+    'exchange_rate',
     'costo',
     'monto_compra',
     'monto_venta',
@@ -130,7 +138,7 @@ class BudgetLine extends Model
     /**
      * @var list<string>
      */
-    protected $appends = ['precio_total', 'utilidad', 'total_utilidad', 'abonado', 'restante'];
+    protected $appends = ['precio_total', 'precio_total_bs', 'utilidad', 'total_utilidad', 'abonado', 'restante'];
 
     protected function casts(): array
     {
@@ -138,6 +146,8 @@ class BudgetLine extends Model
             'fecha' => 'date',
             'cantidad' => 'decimal:2',
             'unit_price' => 'decimal:2',
+            'unit_price_bs' => 'decimal:2',
+            'exchange_rate' => 'decimal:4',
             'costo' => 'decimal:2',
             'monto_compra' => 'decimal:2',
             'monto_venta' => 'decimal:2',
@@ -174,6 +184,19 @@ class BudgetLine extends Model
     protected function precioTotal(): Attribute
     {
         return Attribute::get(fn (): float => round((float) $this->cantidad * (float) $this->unit_price, 2));
+    }
+
+    /**
+     * El precio total en bolívares, con la tasa que guardó la propia fila.
+     *
+     * @return Attribute<float, never>
+     */
+    protected function precioTotalBs(): Attribute
+    {
+        return Attribute::get(fn (): float => round(
+            (float) $this->cantidad * (float) $this->unit_price_bs,
+            2
+        ));
     }
 
     /**

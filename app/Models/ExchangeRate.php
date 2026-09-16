@@ -27,4 +27,15 @@ class ExchangeRate extends Model
             'is_active' => 'boolean',
         ];
     }
+
+    /**
+     * La tasa del día: cuántos bolívares vale un dólar ahora mismo. Null si
+     * todavía no se cargó ninguna.
+     */
+    public static function activeRate(): ?float
+    {
+        $rate = static::where('is_active', true)->value('rate');
+
+        return $rate ? (float) $rate : null;
+    }
 }
