@@ -711,4 +711,36 @@ class BudgetReportsTest extends TestCase
                 ->where('lines.0.notas', 'Se vendió con descuento por volumen.')
             );
     }
+
+    public function test_the_flete_lowers_the_profit_of_a_result_row(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_RESULT,
+                'fecha' => '2026-09-04',
+                'monto_compra' => 100,
+                'monto_venta' => 300,
+                'costo' => 20,
+                'flete' => 30,
+                'gastos_personales' => 50,
+            ])
+            ->assertCreated()
+            // 300 − 100 − 20 − 30.
+            ->assertJsonPath('line.utilidad', 150)
+            // Y el total baja además por los gastos personales.
+            ->assertJsonPath('line.total_utilidad', 100)
+            ->assertJsonPath('summary.resultado_utilidad', 100);
+
+        $this->actingAs($user)
+            ->get(route('presupuesto.results', $period))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('presupuesto/Ganancias')
+                ->where('lines.0.flete', '30.00')
+                ->where('lines.0.utilidad', 150)
+            );
+    }
 }

@@ -167,6 +167,8 @@ export type BudgetLine = {
     exchange_rate: string | null;
     /** Costo de la operacion, en ganancias y perdidas. */
     costo: string | null;
+    /** Flete de la operacion, en ganancias y perdidas. */
+    flete: string | null;
     /** Monto de compra de la operacion, en ganancias y perdidas. */
     monto_compra: string | null;
     /** Monto de venta de la operacion, en ganancias y perdidas. */
@@ -186,7 +188,7 @@ export type BudgetLine = {
     precio_total: number;
     /** Calculado en el servidor: cantidad x precio unitario en bolivares. */
     precio_total_bs: number;
-    /** Calculado en el servidor: venta - compra - costo. */
+    /** Calculado en el servidor: venta - compra - costo - flete. */
     utilidad: number;
     /** Calculado en el servidor: utilidad - gastos personales - perdidas. */
     total_utilidad: number;

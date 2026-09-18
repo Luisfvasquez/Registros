@@ -37,6 +37,7 @@ use Illuminate\Support\Collection as SupportCollection;
  * @property float|null $unit_price_bs
  * @property float|null $exchange_rate
  * @property float|null $costo
+ * @property float|null $flete
  * @property float|null $monto_compra
  * @property float|null $monto_venta
  * @property float|null $monto
@@ -80,6 +81,7 @@ use Illuminate\Support\Collection as SupportCollection;
     'unit_price_bs',
     'exchange_rate',
     'costo',
+    'flete',
     'monto_compra',
     'monto_venta',
     'monto',
@@ -151,6 +153,7 @@ class BudgetLine extends Model
             'unit_price_bs' => 'decimal:2',
             'exchange_rate' => 'decimal:4',
             'costo' => 'decimal:2',
+            'flete' => 'decimal:2',
             'monto_compra' => 'decimal:2',
             'monto_venta' => 'decimal:2',
             'monto' => 'decimal:2',
@@ -203,7 +206,7 @@ class BudgetLine extends Model
     }
 
     /**
-     * Venta − compra − costo, para la hoja de ganancias y pérdidas.
+     * Venta − compra − costo − flete, para la hoja de ganancias y pérdidas.
      *
      * @return Attribute<float, never>
      */
@@ -212,7 +215,8 @@ class BudgetLine extends Model
         return Attribute::get(fn (): float => round(
             (float) $this->monto_venta
             - (float) $this->monto_compra
-            - (float) $this->costo,
+            - (float) $this->costo
+            - (float) $this->flete,
             2
         ));
     }

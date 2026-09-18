@@ -56,12 +56,20 @@ const columns = computed<SheetColumn[]>(() => [
         total: true,
     },
     {
+        key: 'flete',
+        label: 'Flete',
+        type: 'money',
+        width: '11rem',
+        total: true,
+        hint: 'Lo que costó traer o mandar la mercancía.',
+    },
+    {
         key: 'utilidad',
         label: 'Utilidad',
         type: 'computed',
         width: '11rem',
         total: true,
-        hint: 'Venta − compra − costo.',
+        hint: 'Venta − compra − costo − flete.',
         value: (row) => (row as unknown as BudgetLine).utilidad,
     },
     {

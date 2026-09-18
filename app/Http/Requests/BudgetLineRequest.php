@@ -35,6 +35,8 @@ class BudgetLineRequest extends FormRequest
             'unit_price_bs' => $money,
             'exchange_rate' => ['sometimes', 'nullable', 'numeric', 'min:0.0001'],
             'costo' => $money,
+            // Flete de una operación de ganancias y pérdidas.
+            'flete' => $money,
             'monto_compra' => $money,
             'monto_venta' => $money,
             'monto' => $money,
