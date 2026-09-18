@@ -67,19 +67,47 @@ const pendientes = computed<BudgetLine[]>(
     () => props.invoice?.items.filter((item) => item.restante > 0.001) ?? [],
 );
 
+/**
+ * Lo que la factura tiene pendiente, en el orden en que lo cubre el servidor:
+ * los movimientos del más viejo al más nuevo y, al final, el cargo adicional.
+ */
+const objetivos = computed<{ id: string; label: string; restante: number }[]>(
+    () => {
+        const filas = pendientes.value.map((item) => ({
+            id: `movimiento-${item.id}`,
+            label: item.producto ?? 'Sin producto',
+            restante: item.restante,
+        }));
+
+        const adicional = props.invoice?.totales.adicional_restante ?? 0;
+
+        if (adicional > 0.001) {
+            filas.push({
+                id: 'adicional',
+                label: 'Adicional (flete u otro cargo)',
+                restante: adicional,
+            });
+        }
+
+        return filas;
+    },
+);
+
 const porCubrir = computed(() =>
-    round2(pendientes.value.reduce((total, item) => total + item.restante, 0)),
+    round2(objetivos.value.reduce((total, fila) => total + fila.restante, 0)),
 );
 
 /** Cómo caería el abono: mismo reparto en cascada que hace el servidor. */
 const reparto = computed(() => {
     let restante = monto.value;
 
-    return pendientes.value.map((item) => {
-        const parte = round2(Math.min(Math.max(restante, 0), item.restante));
+    return objetivos.value.map((objetivo) => {
+        const parte = round2(
+            Math.min(Math.max(restante, 0), objetivo.restante),
+        );
         restante = round2(restante - parte);
 
-        return { item, parte, queda: round2(item.restante - parte) };
+        return { objetivo, parte, queda: round2(objetivo.restante - parte) };
     });
 });
 
@@ -107,7 +135,8 @@ function submit(): void {
                 <DialogDescription>
                     El monto se reparte entre los movimientos pendientes de
                     {{ invoice?.party_name ?? 'la factura' }}, del más viejo al
-                    más nuevo. Falta {{ formatMoney(porCubrir, currency) }}.
+                    más nuevo, y al final cubre el cargo adicional. Falta
+                    {{ formatMoney(porCubrir, currency) }}.
                 </DialogDescription>
             </DialogHeader>
 
@@ -176,7 +205,7 @@ function submit(): void {
                 </div>
 
                 <div
-                    v-if="pendientes.length > 0"
+                    v-if="objetivos.length > 0"
                     class="rounded border border-neutral-200 dark:border-neutral-800"
                 >
                     <table class="w-full text-[13px]">
@@ -193,7 +222,7 @@ function submit(): void {
                         <tbody>
                             <tr
                                 v-for="fila in reparto"
-                                :key="fila.item.id"
+                                :key="fila.objetivo.id"
                                 class="border-t border-neutral-100 dark:border-neutral-800"
                                 :class="
                                     fila.parte > 0
@@ -202,12 +231,12 @@ function submit(): void {
                                 "
                             >
                                 <td class="px-2 py-1">
-                                    {{ fila.item.producto ?? 'Sin producto' }}
+                                    {{ fila.objetivo.label }}
                                 </td>
                                 <td class="px-2 py-1 text-right tabular-nums">
                                     {{
                                         formatMoney(
-                                            fila.item.restante,
+                                            fila.objetivo.restante,
                                             currency,
                                         )
                                     }}

@@ -87,6 +87,13 @@ const columns = computed<SheetColumn[]>(() => [
         hint: 'Utilidad − gastos personales − pérdida de mercancía.',
         value: (row) => (row as unknown as BudgetLine).total_utilidad,
     },
+    {
+        key: 'notas',
+        label: 'Nota',
+        type: 'text',
+        width: '18rem',
+        hint: 'Datos adicionales de la operación.',
+    },
 ]);
 
 function addResult(): void {

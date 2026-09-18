@@ -38,6 +38,8 @@ class BudgetLineRequest extends FormRequest
             'monto_compra' => $money,
             'monto_venta' => $money,
             'monto' => $money,
+            // Cargo extra de una factura: flete, envío o lo que se sume aparte.
+            'monto_adicional' => $money,
             'payment_status' => ['sometimes', 'nullable', 'string', 'max:50'],
             'payment_method' => ['sometimes', 'nullable', 'string', 'max:50'],
             'invoice_number' => ['sometimes', 'nullable', 'string', 'max:50'],
@@ -69,6 +71,7 @@ class BudgetLineRequest extends FormRequest
             'payment_status' => 'estado de pago',
             'payment_method' => 'método de pago',
             'invoice_number' => 'nº de factura',
+            'monto_adicional' => 'monto adicional',
         ];
     }
 }

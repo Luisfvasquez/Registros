@@ -567,4 +567,148 @@ class BudgetReportsTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors('invoice_line_id');
     }
+
+    public function test_the_extra_charge_is_added_to_what_the_invoice_owes(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create([
+            'monto_adicional' => 25,
+        ]);
+
+        BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'cantidad' => 2,
+            'unit_price' => 50,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('presupuesto.invoices', $period))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('lines.0.totales.subtotal', 100)
+                ->where('lines.0.totales.adicional', 25)
+                ->where('lines.0.totales.total', 125)
+                ->where('lines.0.totales.restante', 125)
+                ->where('lines.0.totales.estado', 'Pendiente')
+            );
+    }
+
+    public function test_editing_the_extra_charge_returns_the_invoice_with_its_totals_rehechos(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create();
+
+        BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'cantidad' => 1,
+            'unit_price' => 80,
+        ]);
+
+        $this->actingAs($user)
+            ->patchJson(route('presupuesto.lines.update', $factura), ['monto_adicional' => 20])
+            ->assertOk()
+            ->assertJsonPath('line.totales.adicional', 20)
+            ->assertJsonPath('line.totales.total', 100)
+            ->assertJsonPath('line.totales.restante', 100);
+    }
+
+    public function test_an_invoice_payment_covers_the_extra_charge_after_the_movements(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create([
+            'monto_adicional' => 20,
+        ]);
+
+        $venta = BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'cantidad' => 1,
+            'unit_price' => 100,
+            'payment_status' => 'Pendiente',
+        ]);
+
+        // Cubre la venta entera y 10 del flete.
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.payments.store', [$period, $factura]), [
+                'fecha' => '2026-09-06',
+                'method' => 'Efectivo',
+                'amount' => 110,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('invoice.totales.abonado', 110)
+            ->assertJsonPath('invoice.totales.restante', 10)
+            ->assertJsonPath('invoice.totales.adicional_restante', 10)
+            ->assertJsonPath('invoice.totales.estado', 'Abonada')
+            // Para el cliente fue un solo pago, aunque por dentro sean dos filas.
+            ->assertJsonCount(1, 'invoice.abonos')
+            ->assertJsonPath('invoice.abonos.0.amount', 110);
+
+        $this->assertSame(100.0, $venta->fresh()->abonado);
+        $this->assertSame('Pagado', $venta->fresh()->payment_status);
+        $this->assertSame(10.0, round((float) $factura->payments()->sum('amount'), 2));
+
+        // Lo que queda del flete cierra la factura.
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.payments.store', [$period, $factura]), [
+                'fecha' => '2026-09-07',
+                'amount' => 10,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('invoice.totales.restante', 0)
+            ->assertJsonPath('invoice.totales.estado', 'Pagada');
+    }
+
+    public function test_an_invoice_payment_cannot_exceed_the_movements_plus_the_extra_charge(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $factura = BudgetLine::factory()->for($period, 'period')->invoice()->create([
+            'monto_adicional' => 20,
+        ]);
+
+        BudgetLine::factory()->for($period, 'period')->sale()->create([
+            'invoice_line_id' => $factura->id,
+            'cantidad' => 1,
+            'unit_price' => 100,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson(route('presupuesto.invoices.payments.store', [$period, $factura]), [
+                'fecha' => '2026-09-06',
+                'amount' => 121,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('amount');
+    }
+
+    public function test_a_profit_and_loss_row_keeps_its_note(): void
+    {
+        $user = User::factory()->create();
+        $period = BudgetPeriod::factory()->create();
+
+        $fila = $this->actingAs($user)
+            ->postJson(route('presupuesto.lines.store', $period), [
+                'section' => BudgetLine::SECTION_RESULT,
+                'fecha' => '2026-09-04',
+                'monto_venta' => 300,
+                'notas' => 'Se vendió con descuento por volumen.',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('line.notas', 'Se vendió con descuento por volumen.')
+            ->json('line.id');
+
+        $this->actingAs($user)
+            ->get(route('presupuesto.results', $period))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('presupuesto/Ganancias')
+                ->where('lines.0.id', $fila)
+                ->where('lines.0.notas', 'Se vendió con descuento por volumen.')
+            );
+    }
 }

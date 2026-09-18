@@ -39,3 +39,11 @@ Una compra o venta guarda `unit_price` (moneda del período), `unit_price_bs` y 
 - Cambiar `exchange_rate` a mano rehace `unit_price_bs` desde `unit_price`.
 - Saldos, abonos, cuentas y tablero siguen calculándose sobre `unit_price`. Los bolívares son espejo: `precio_total_bs` es un accesor, nadie suma por ahí. No metas los bolívares en `BudgetPeriod::summary()`.
 - Sin tasa activa el observador no toca nada: se guarda lo que se escribió y la otra columna queda vacía.
+
+## El cargo extra de una factura se abona contra la propia fila factura
+`budget_lines.monto_adicional` es el flete o cargo aparte de una factura (sección `factura`). No pertenece a ninguna compra ni venta, así que:
+
+- `toInvoiceArray()` devuelve `totales.subtotal` (lo que suman los movimientos) + `totales.adicional` = `totales.total`, y `adicional_restante` para saber cuánto falta del cargo.
+- Los abonos que lo cubren se guardan en `payments` de la fila `factura` misma. `InvoiceController::pendingTargets()` arma el orden: movimientos del más viejo al más nuevo y el cargo extra al final. `groupedPayments()` los junta por `batch_id` con los de los movimientos, así que para el contacto sigue siendo un solo abono.
+- Por eso `syncPaymentStatus()` usa `monto_adicional` como total cuando la fila es una factura: una factura no tiene `precio_total` propio.
+- El cargo extra NO entra en `BudgetPeriod::summary()`: no es una compra ni una venta.

@@ -24,6 +24,9 @@ const money = (value: number | string | null | undefined) =>
  * sola línea acá, aunque por dentro se haya repartido entre los movimientos.
  */
 const abonos = computed(() => props.invoice.abonos);
+
+/** Flete u otro cargo que se le sumó al contacto aparte de los movimientos. */
+const adicional = computed(() => props.invoice.totales.adicional);
 </script>
 
 <template>
@@ -86,6 +89,16 @@ const abonos = computed(() => props.invoice.abonos);
         <div
             class="space-y-1 border-t border-dashed border-neutral-300 pt-3 text-sm"
         >
+            <template v-if="adicional > 0">
+                <div class="flex justify-between text-neutral-600">
+                    <span>Subtotal</span>
+                    <span>{{ money(invoice.totales.subtotal) }}</span>
+                </div>
+                <div class="flex justify-between text-neutral-600">
+                    <span>Adicional</span>
+                    <span>{{ money(adicional) }}</span>
+                </div>
+            </template>
             <div class="flex justify-between text-base font-bold">
                 <span>Total</span>
                 <span>{{ money(invoice.totales.total) }}</span>

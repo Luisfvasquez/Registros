@@ -73,7 +73,7 @@ class LineController extends Controller
         $fresh = $line->fresh()->load('payments', 'invoice');
 
         return response()->json([
-            'line' => $fresh,
+            'line' => $this->linePayload($fresh),
             'invoice' => $this->invoiceOption($fresh->invoice),
             'summary' => $line->period?->summary(),
         ]);
@@ -86,6 +86,20 @@ class LineController extends Controller
         $line->delete();
 
         return response()->json(['summary' => $period?->summary()]);
+    }
+
+    /**
+     * La fila como la espera su hoja. La de una factura se devuelve con sus
+     * movimientos y totales: tocar el cargo extra cambia lo que la factura suma,
+     * y esos números los arma el servidor.
+     *
+     * @return BudgetLine|array<string, mixed>
+     */
+    private function linePayload(BudgetLine $line): BudgetLine|array
+    {
+        return $line->section === BudgetLine::SECTION_INVOICE
+            ? $line->toInvoiceArray()
+            : $line;
     }
 
     /**

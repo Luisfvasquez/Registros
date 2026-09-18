@@ -40,6 +40,7 @@ use Illuminate\Support\Collection as SupportCollection;
  * @property float|null $monto_compra
  * @property float|null $monto_venta
  * @property float|null $monto
+ * @property float|null $monto_adicional
  * @property string|null $payment_status
  * @property string|null $payment_method
  * @property string|null $invoice_number
@@ -82,6 +83,7 @@ use Illuminate\Support\Collection as SupportCollection;
     'monto_compra',
     'monto_venta',
     'monto',
+    'monto_adicional',
     'payment_status',
     'payment_method',
     'invoice_number',
@@ -152,6 +154,7 @@ class BudgetLine extends Model
             'monto_compra' => 'decimal:2',
             'monto_venta' => 'decimal:2',
             'monto' => 'decimal:2',
+            'monto_adicional' => 'decimal:2',
             'gastos_personales' => 'decimal:2',
             'perdidas_mercancia' => 'decimal:2',
             'position' => 'integer',
@@ -321,7 +324,11 @@ class BudgetLine extends Model
     public function syncPaymentStatus(): void
     {
         $abonado = (float) $this->payments()->sum('amount');
-        $total = $this->precio_total;
+        // Una factura no tiene precio propio: lo único que se le abona directo
+        // es el cargo extra.
+        $total = $this->section === self::SECTION_INVOICE
+            ? round((float) $this->monto_adicional, 2)
+            : $this->precio_total;
 
         $status = match (true) {
             $abonado <= 0 => 'Pendiente',
@@ -346,22 +353,35 @@ class BudgetLine extends Model
             ? $this->invoiceLines
             : $this->invoiceLines()->with('payments')->sheetOrder()->get();
 
-        $total = round((float) $items->sum('precio_total'), 2);
-        $abonado = round((float) $items->sum('abonado'), 2);
+        // El cargo extra no cuelga de ningún movimiento, así que se abona contra
+        // la propia factura: esos abonos son los que lo van cubriendo.
+        $propios = $this->relationLoaded('payments')
+            ? $this->payments
+            : $this->payments()->get();
+
+        $subtotal = round((float) $items->sum('precio_total'), 2);
+        $adicional = round((float) $this->monto_adicional, 2);
+        $adicionalAbonado = round((float) $propios->sum('amount'), 2);
+
+        $total = round($subtotal + $adicional, 2);
+        $abonado = round((float) $items->sum('abonado') + $adicionalAbonado, 2);
         $restante = round($total - $abonado, 2);
 
         return [
             ...$this->toArray(),
             'items' => $items->values()->all(),
-            'abonos' => $this->groupedPayments($items),
+            'abonos' => $this->groupedPayments($items, $propios),
             'totales' => [
                 'movimientos' => $items->count(),
                 'cantidad' => round((float) $items->sum('cantidad'), 2),
+                'subtotal' => $subtotal,
+                'adicional' => $adicional,
+                'adicional_restante' => round(max($adicional - $adicionalAbonado, 0), 2),
                 'total' => $total,
                 'abonado' => $abonado,
                 'restante' => $restante,
                 'estado' => match (true) {
-                    $items->isEmpty() => 'Sin movimientos',
+                    $items->isEmpty() && $adicional <= 0 => 'Sin movimientos',
                     $abonado <= 0 => 'Pendiente',
                     $restante <= 0.001 => 'Pagada',
                     default => 'Abonada',
@@ -373,17 +393,20 @@ class BudgetLine extends Model
     /**
      * Los abonos de la factura como se hicieron de verdad.
      *
-     * Un pago contra la factura se guarda repartido entre sus movimientos, pero
-     * para el contacto fue uno solo: las filas que comparten `batch_id` se
-     * suman y se muestran como un abono. Los cargados de a uno van sueltos.
+     * Un pago contra la factura se guarda repartido entre sus movimientos — y,
+     * si sobra, contra la factura misma para cubrir el cargo extra —, pero para
+     * el contacto fue uno solo: las filas que comparten `batch_id` se suman y se
+     * muestran como un abono. Los cargados de a uno van sueltos.
      *
      * @param  Collection<int, BudgetLine>  $items
+     * @param  Collection<int, BudgetLinePayment>  $propios
      * @return list<array<string, mixed>>
      */
-    private function groupedPayments(Collection $items): array
+    private function groupedPayments(Collection $items, Collection $propios): array
     {
         return $items
             ->flatMap(fn (BudgetLine $item): iterable => $item->payments)
+            ->concat($propios)
             ->groupBy(fn (BudgetLinePayment $payment): string => $payment->batch_id ?? 'x'.$payment->id)
             ->map(function (SupportCollection $grupo): array {
                 $primero = $grupo->first();

@@ -98,7 +98,7 @@ class SheetController extends BaseController
     {
         $invoices = $period->lines()
             ->section(BudgetLine::SECTION_INVOICE)
-            ->with(['invoiceLines' => fn ($query) => $query->with('payments')->sheetOrder()])
+            ->with(['payments', 'invoiceLines' => fn ($query) => $query->with('payments')->sheetOrder()])
             ->sheetOrder()
             ->get()
             ->map(fn (BudgetLine $invoice): array => $invoice->toInvoiceArray())

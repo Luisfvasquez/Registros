@@ -97,12 +97,31 @@ const columns = computed<SheetColumn[]>(() => [
         value: (row) => (row as unknown as BudgetInvoice).totales.cantidad,
     },
     {
+        key: 'subtotal',
+        label: 'Subtotal',
+        type: 'money',
+        width: '11rem',
+        readonly: true,
+        total: true,
+        hint: 'Lo que suman los movimientos, sin el cargo adicional.',
+        value: (row) => (row as unknown as BudgetInvoice).totales.subtotal,
+    },
+    {
+        key: 'monto_adicional',
+        label: 'Adicional',
+        type: 'money',
+        width: '11rem',
+        total: true,
+        hint: 'Flete, envío u otro cargo que se le suma al contacto. Se cobra después de los movimientos.',
+    },
+    {
         key: 'total',
         label: 'Precio total',
         type: 'money',
         width: '11rem',
         readonly: true,
         total: true,
+        hint: 'Subtotal + adicional.',
         value: (row) => (row as unknown as BudgetInvoice).totales.total,
     },
     {
@@ -160,8 +179,8 @@ async function addInvoice(): Promise<void> {
 }
 
 /**
- * Los totales de la factura los calcula el servidor a partir de sus
- * movimientos, así que la respuesta se funde con la fila sin pisarlos.
+ * Los totales de la factura los calcula el servidor a partir de sus movimientos
+ * y del cargo adicional, así que la respuesta vuelve con ellos rehechos.
  */
 async function update(
     row: SheetRow,
@@ -177,7 +196,7 @@ async function update(
     Object.assign(invoice, patch);
 
     try {
-        const { line } = await api<{ line: BudgetLine }>(
+        const { line } = await api<{ line: BudgetInvoice }>(
             lineRoutes.update.url(invoice.id),
             'PATCH',
             patch,

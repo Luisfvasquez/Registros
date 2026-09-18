@@ -173,6 +173,8 @@ export type BudgetLine = {
     monto_venta: string | null;
     /** Monto del gasto, solo en la seccion gasto. */
     monto: string | null;
+    /** Cargo extra de una factura: flete, envio o lo que se sume aparte. */
+    monto_adicional: string | null;
     payment_status: string | null;
     payment_method: string | null;
     invoice_number: string | null;
@@ -221,6 +223,13 @@ export type BudgetInvoice = BudgetLine & {
     totales: {
         movimientos: number;
         cantidad: number;
+        /** Lo que suman los movimientos, sin el cargo extra. */
+        subtotal: number;
+        /** El cargo extra cargado en la factura. */
+        adicional: number;
+        /** Lo que falta del cargo extra: se abona despues de los movimientos. */
+        adicional_restante: number;
+        /** Subtotal + adicional: lo que se le cobra al contacto. */
         total: number;
         abonado: number;
         restante: number;
